@@ -8,8 +8,8 @@ public class LongWriteFieldAccess extends WriteFieldAccess {
 
 	private long value;
 
-	public void set(long value, Object reference, long field) {
-		super.init(reference, field);
+	public void set(long value, Object reference, long field, int advice) {
+		super.init(reference, field, advice);
 		this.value = value;
 	}
 

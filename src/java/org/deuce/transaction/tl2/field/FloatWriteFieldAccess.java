@@ -8,8 +8,8 @@ public class FloatWriteFieldAccess extends WriteFieldAccess {
 
 	private float value;
 
-	public void set(float value, Object reference, long field) {
-		super.init(reference, field);
+	public void set(float value, Object reference, long field, int advice) {
+		super.init(reference, field, advice);
 		this.value = value;
 	}
 

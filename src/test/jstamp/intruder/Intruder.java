@@ -267,7 +267,14 @@ public class Intruder extends Thread {
  * =============================================================================
  */
 
-    public static void main(String[] argv) {
+    public static void main(String[] argv)
+    {
+    	for (int i=0; i<2; ++i) {
+    		test(argv);
+    	}
+    }
+
+	private static void test(String[] argv) {
 		/*
          * Initialization
          */

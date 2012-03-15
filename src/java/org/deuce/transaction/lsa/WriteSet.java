@@ -1,5 +1,8 @@
 package org.deuce.transaction.lsa;
 
+
+import java.util.HashMap;
+
 import org.deuce.transaction.lsa.field.Field.Type;
 import org.deuce.transaction.lsa.field.WriteFieldAccess;
 import org.deuce.transaction.lsa.LockTable;
@@ -89,4 +92,5 @@ public class WriteSet {
 			LockTable.setAndReleaseLock(w.getHash(), w.getLock());
 		}
 	}
+
 }

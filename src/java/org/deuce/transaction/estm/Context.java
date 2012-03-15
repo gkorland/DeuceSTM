@@ -138,7 +138,7 @@ final public class Context implements org.deuce.transaction.Context {
 		return false;
 	}
 
-	public void beforeReadAccess(Object obj, long field) {
+	public void beforeReadAccess(Object obj, long field, int advice) {
 		readHash = LockTable.hash(obj, field);
 		// Check if the field is locked (may throw an exception)
 		readLock = LockTable.checkLock(readHash, id);
@@ -240,75 +240,75 @@ final public class Context implements org.deuce.transaction.Context {
 		writeSet.add(hash, obj, field, value, type, timestamp);
 	}
 
-	public Object onReadAccess(Object obj, Object value, long field) {
+	public Object onReadAccess(Object obj, Object value, long field, int advice) {
 		return (onReadAccess(obj, field, Type.OBJECT) ? readValue : value);
 	}
 
-	public boolean onReadAccess(Object obj, boolean value, long field) {
+	public boolean onReadAccess(Object obj, boolean value, long field, int advice) {
 		return (onReadAccess(obj, field, Type.BOOLEAN) ? (Boolean) readValue : value);
 	}
 
-	public byte onReadAccess(Object obj, byte value, long field) {
+	public byte onReadAccess(Object obj, byte value, long field, int advice) {
 		return (onReadAccess(obj, field, Type.BYTE) ? ((Number) readValue).byteValue() : value);
 	}
 
-	public char onReadAccess(Object obj, char value, long field) {
+	public char onReadAccess(Object obj, char value, long field, int advice) {
 		return (onReadAccess(obj, field, Type.CHAR) ? (Character) readValue : value);
 	}
 
-	public short onReadAccess(Object obj, short value, long field) {
+	public short onReadAccess(Object obj, short value, long field, int advice) {
 		return (onReadAccess(obj, field, Type.SHORT) ? ((Number) readValue).shortValue() : value);
 	}
 
-	public int onReadAccess(Object obj, int value, long field) {
+	public int onReadAccess(Object obj, int value, long field, int advice) {
 		return (onReadAccess(obj, field, Type.INT) ? ((Number) readValue).intValue() : value);
 	}
 
-	public long onReadAccess(Object obj, long value, long field) {
+	public long onReadAccess(Object obj, long value, long field, int advice) {
 		return (onReadAccess(obj, field, Type.LONG) ? ((Number) readValue).longValue() : value);
 	}
 
-	public float onReadAccess(Object obj, float value, long field) {
+	public float onReadAccess(Object obj, float value, long field, int advice) {
 		return (onReadAccess(obj, field, Type.FLOAT) ? ((Number) readValue).floatValue() : value);
 	}
 
-	public double onReadAccess(Object obj, double value, long field) {
+	public double onReadAccess(Object obj, double value, long field, int advice) {
 		return (onReadAccess(obj, field, Type.DOUBLE) ? ((Number) readValue).doubleValue() : value);
 	}
 
-	public void onWriteAccess(Object obj, Object value, long field) {
+	public void onWriteAccess(Object obj, Object value, long field, int advice) {
 		onWriteAccess(obj, field, value, Type.OBJECT);
 	}
 
-	public void onWriteAccess(Object obj, boolean value, long field) {
+	public void onWriteAccess(Object obj, boolean value, long field, int advice) {
 		onWriteAccess(obj, field, (Object) value, Type.BOOLEAN);
 	}
 
-	public void onWriteAccess(Object obj, byte value, long field) {
+	public void onWriteAccess(Object obj, byte value, long field, int advice) {
 		onWriteAccess(obj, field, (Object) value, Type.BYTE);
 	}
 
-	public void onWriteAccess(Object obj, char value, long field) {
+	public void onWriteAccess(Object obj, char value, long field, int advice) {
 		onWriteAccess(obj, field, (Object) value, Type.CHAR);
 	}
 
-	public void onWriteAccess(Object obj, short value, long field) {
+	public void onWriteAccess(Object obj, short value, long field, int advice) {
 		onWriteAccess(obj, field, (Object) value, Type.SHORT);
 	}
 
-	public void onWriteAccess(Object obj, int value, long field) {
+	public void onWriteAccess(Object obj, int value, long field, int advice) {
 		onWriteAccess(obj, field, (Object) value, Type.INT);
 	}
 
-	public void onWriteAccess(Object obj, long value, long field) {
+	public void onWriteAccess(Object obj, long value, long field, int advice) {
 		onWriteAccess(obj, field, (Object) value, Type.LONG);
 	}
 
-	public void onWriteAccess(Object obj, float value, long field) {
+	public void onWriteAccess(Object obj, float value, long field, int advice) {
 		onWriteAccess(obj, field, (Object) value, Type.FLOAT);
 	}
 
-	public void onWriteAccess(Object obj, double value, long field) {
+	public void onWriteAccess(Object obj, double value, long field, int advice) {
 		onWriteAccess(obj, field, (Object) value, Type.DOUBLE);
 	}
 	

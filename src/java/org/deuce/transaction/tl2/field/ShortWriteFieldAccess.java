@@ -8,8 +8,8 @@ public class ShortWriteFieldAccess extends WriteFieldAccess {
 
 	private short value;
 
-	public void set(short value, Object reference, long field) {
-		super.init(reference, field);
+	public void set(short value, Object reference, long field, int advice) {
+		super.init(reference, field, advice);
 		this.value = value;
 	}
 

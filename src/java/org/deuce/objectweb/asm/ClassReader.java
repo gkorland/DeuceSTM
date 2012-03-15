@@ -30,7 +30,13 @@
 package org.deuce.objectweb.asm;
 
 import java.io.InputStream;
+
 import java.io.IOException;
+
+
+import org.deuce.optimize.main.Optimizer;
+import org.deuce.transform.asm.ByteCodeVisitor;
+import org.deuce.transform.asm.FramesCodeVisitor;
 
 /**
  * A Java class parser to make a {@link ClassVisitor} visit an existing class.
@@ -775,6 +781,24 @@ public class ClassReader {
                 }
             }
 
+            String className = null;
+			if (classVisitor instanceof FramesCodeVisitor) {
+				FramesCodeVisitor framesCodeVisitor = (FramesCodeVisitor) classVisitor;
+				ClassVisitor cv = framesCodeVisitor.cv;
+				if (cv instanceof ClassWriter) {
+					className = ((ClassWriter) cv).thisName;
+				}    								
+			} else {
+				className = ((ByteCodeVisitor) classVisitor)
+						.getClassName();
+			}
+
+			Optimizer optimizer = Optimizer.getInstance();
+			optimizer.setCurrentClass(className.replace('/',
+					'.'));
+			optimizer.setCurrentMethod(name);
+			optimizer.setSignature(desc);
+
             // visits the method's code, if any
             MethodVisitor mv = classVisitor.visitMethod(access,
                     name,
@@ -875,6 +899,8 @@ public class ClassReader {
                 int codeStart = v;
                 int codeEnd = v + codeLength;
 
+               
+                
                 mv.visitCode();
 
                 // 1st phase: finds the labels
@@ -1267,6 +1293,9 @@ public class ClassReader {
                     }
 
                     int opcode = b[v] & 0xFF;
+                    
+					optimizer.setCurrentBytecodeOffset(w);
+                    
                     switch (ClassWriter.TYPE[opcode]) {
                         case ClassWriter.NOARG_INSN:
                             mv.visitInsn(opcode);
@@ -1376,11 +1405,11 @@ public class ClassReader {
                             }
                             String iname = readUTF8(cpIndex, c);
                             String idesc = readUTF8(cpIndex + 2, c);
-                            if (opcode < Opcodes.INVOKEVIRTUAL) {
-                                mv.visitFieldInsn(opcode, iowner, iname, idesc);
-                            } else {
-                                mv.visitMethodInsn(opcode, iowner, iname, idesc);
-                            }
+                            if (opcode < Opcodes.INVOKEVIRTUAL) {    							
+    							mv.visitFieldInsn(opcode, iowner, iname, idesc);
+    						} else {
+    							mv.visitMethodInsn(opcode, iowner, iname, idesc);
+    						}
                             if (opcode == Opcodes.INVOKEINTERFACE || opcode == Opcodes.INVOKEDYNAMIC) {
                                 v += 5;
                             } else {

@@ -67,7 +67,7 @@ public class MethodTransformer implements MethodVisitor{
 			copyMethod.visitMethodInsn( Opcodes.INVOKESTATIC, ContextDelegator.CONTEXT_DELEGATOR_INTERNAL,
 					ContextDelegator.IRREVOCABLE_METHOD_NAME, ContextDelegator.IRREVOCABLE_METHOD_DESC);
 		}
-	
+
 	}
 
 	public AnnotationVisitor visitAnnotation(String desc, boolean visible) {
@@ -90,8 +90,8 @@ public class MethodTransformer implements MethodVisitor{
 		if( desc.contains("org/junit")) // TODO find another way
 			return originalMethod.visitAnnotation(desc, visible);
 		
-		return new MethodAnnotationVisitor( originalMethod.visitAnnotation(desc, visible),
-				copyMethod.visitAnnotation(desc, visible));
+			return new MethodAnnotationVisitor( originalMethod.visitAnnotation(desc, visible),
+					copyMethod.visitAnnotation(desc, visible));
 	}
 
 	public AnnotationVisitor visitAnnotationDefault() {

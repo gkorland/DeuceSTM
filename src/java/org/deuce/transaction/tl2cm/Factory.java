@@ -1,14 +1,14 @@
 package org.deuce.transaction.tl2cm;
 
 import org.deuce.transaction.tl2cm.cm.Aggressive;
-import org.deuce.transaction.tl2cm.cm.AggressiveLS;
 import org.deuce.transaction.tl2cm.cm.ContentionManager;
 import org.deuce.transaction.tl2cm.cm.Karma;
-import org.deuce.transaction.tl2cm.cm.KarmaLS;
-import org.deuce.transaction.tl2cm.cm.KillPrioLS;
+import org.deuce.transaction.tl2cm.cm.KarmaLockStealer;
+import org.deuce.transaction.tl2cm.cm.LockSkipper;
 import org.deuce.transaction.tl2cm.cm.Polite;
 import org.deuce.transaction.tl2cm.cm.Polka;
 import org.deuce.transaction.tl2cm.cm.Suicide;
+import org.deuce.transaction.tl2cm.cm.Timestamp;
 import org.deuce.transform.Exclude;
 
 /**
@@ -24,6 +24,7 @@ public class Factory {
 	public static ContentionManager createContentionManager() {
 		String cmId = System.getProperty(TL2CM_CONTENTIONMANAGER);
 		ContentionManager cm = null;
+		int constant = getConstant();
 		if ("Suicide".equals(cmId)) {
 			cm = new Suicide();
 		}
@@ -36,22 +37,33 @@ public class Factory {
 		else if ("Karma".equals(cmId)) {
 			cm = new Karma(4); 
 		}
-		else if ("KarmaLS".equals(cmId)) {
-			cm = new KarmaLS();
+		else if ("KarmaLockStealer".equals(cmId)) {
+			cm = new KarmaLockStealer(4);
 		}
 		else if ("Polka".equals(cmId)) {
 			cm = new Polka(10);
 		}
-		else if ("AggressiveLS".equals(cmId)) {
-			cm = new AggressiveLS();
+		else if ("Timestamp".equals(cmId)) {
+			cm = new Timestamp(4);
 		}
-		else if ("KillPrioLS".equals(cmId)) {
-			cm = new KillPrioLS();
+		else if ("LockSkipper".equals(cmId)) {
+			cm = new LockSkipper();
 		}
 		else {
-			cm = new KillPrioLS();	// This is the default CM
+			cm = new Suicide();	// This is the default CM
 		}
 		return cm;
+	}
+	
+	private static int getConstant() {
+		String c = System.getProperty("constant");
+		if (c != null) {
+			int constant = Integer.valueOf(c);
+			return constant;
+		}
+		else {
+			return 1;
+		}
 	}
 
 }

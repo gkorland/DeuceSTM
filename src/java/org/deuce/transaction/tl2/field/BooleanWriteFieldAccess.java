@@ -8,8 +8,8 @@ public class BooleanWriteFieldAccess extends WriteFieldAccess {
 
 	private boolean value;
 
-	public void set(boolean value, Object reference, long field) {
-		super.init(reference, field);
+	public void set(boolean value, Object reference, long field, int  advice) {
+		super.init(reference, field, advice);
 		this.value = value;
 	}
 

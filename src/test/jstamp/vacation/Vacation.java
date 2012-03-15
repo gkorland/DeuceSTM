@@ -275,6 +275,9 @@ public class Vacation {
  * =============================================================================
  */
   public static void main(String argv[]) throws Exception {
+	System.gc();
+	Thread.sleep(1000);
+	
 	Manager managerPtr;
     Client clients[];
     long start;

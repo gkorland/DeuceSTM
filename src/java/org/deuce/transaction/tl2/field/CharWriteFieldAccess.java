@@ -8,8 +8,8 @@ public class CharWriteFieldAccess extends WriteFieldAccess {
 
 	private char value;
 
-	public void set(char value, Object reference, long field) {
-		super.init(reference, field);
+	public void set(char value, Object reference, long field, int advice) {
+		super.init(reference, field, advice);
 		this.value = value;
 	}
 

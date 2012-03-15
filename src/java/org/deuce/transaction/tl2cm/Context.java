@@ -1,26 +1,31 @@
 package org.deuce.transaction.tl2cm;
 
-import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.deuce.transaction.TransactionException;
+import org.deuce.transaction.tl2.WriteSet;
+import org.deuce.transaction.tl2.field.BooleanWriteFieldAccess;
+import org.deuce.transaction.tl2.field.ByteWriteFieldAccess;
+import org.deuce.transaction.tl2.field.CharWriteFieldAccess;
+import org.deuce.transaction.tl2.field.DoubleWriteFieldAccess;
+import org.deuce.transaction.tl2.field.FloatWriteFieldAccess;
+import org.deuce.transaction.tl2.field.IntWriteFieldAccess;
+import org.deuce.transaction.tl2.field.LongWriteFieldAccess;
+import org.deuce.transaction.tl2.field.ObjectWriteFieldAccess;
+import org.deuce.transaction.tl2.field.ReadFieldAccess;
+import org.deuce.transaction.tl2.field.ShortWriteFieldAccess;
+import org.deuce.transaction.tl2.field.WriteFieldAccess;
 import org.deuce.transaction.tl2.pool.Pool;
 import org.deuce.transaction.tl2.pool.ResourceFactory;
 import org.deuce.transaction.tl2cm.Statistics.AbortType;
+import org.deuce.transaction.tl2cm.WriteSetIterator.WriteSetIteratorElement;
 import org.deuce.transaction.tl2cm.cm.ContentionManager;
 import org.deuce.transaction.tl2cm.cm.ContentionManager.Action;
-import org.deuce.transaction.tl2cm.field.BooleanWriteFieldAccess;
-import org.deuce.transaction.tl2cm.field.ByteWriteFieldAccess;
-import org.deuce.transaction.tl2cm.field.CharWriteFieldAccess;
-import org.deuce.transaction.tl2cm.field.DoubleWriteFieldAccess;
-import org.deuce.transaction.tl2cm.field.FloatWriteFieldAccess;
-import org.deuce.transaction.tl2cm.field.IntWriteFieldAccess;
-import org.deuce.transaction.tl2cm.field.LongWriteFieldAccess;
-import org.deuce.transaction.tl2cm.field.ObjectWriteFieldAccess;
-import org.deuce.transaction.tl2cm.field.ReadFieldAccess;
-import org.deuce.transaction.tl2cm.field.ShortWriteFieldAccess;
-import org.deuce.transaction.tl2cm.field.WriteFieldAccess;
 import org.deuce.transform.Exclude;
 import org.deuce.trove.TObjectProcedure;
 
@@ -37,47 +42,64 @@ import org.deuce.trove.TObjectProcedure;
 final public class Context implements org.deuce.transaction.Context {
 
 	// Static members - shared by all threads
-	public static final int TX_RUNNING = 0;
-	public static final int TX_COMMITTED = 1;
-	public static final int TX_ABORTED = 2;
-	public static final TransactionException FAILURE_EXCEPTION = new TransactionException("Transaction failed");
-
-	private static final AtomicInteger globalClock = new AtomicInteger(0);
-	private static final AtomicInteger threadIdCounter = new AtomicInteger(1);
-	private static final Context[] threads = new Context[256];
+	public static final String TL2CM_LOGGER = "org.deuce.transaction.tl2cm";
+	public static final TransactionException FAILURE_EXCEPTION = new TransactionException( "Transaction failed");
 	
+	//private static final Logger logger = Logger.getLogger(TL2CM_LOGGER);
+	private static final AtomicInteger clock = new AtomicInteger(0);
+	private static final AtomicInteger threadIdCounter = new AtomicInteger(1);
+	private static final Map<Integer, Context> threads = new ConcurrentHashMap<Integer, Context>();
+	private static final ContentionManager cm = Factory.createContentionManager();
+
 	//Global lock used to allow only one irrevocable transaction solely. 
 	final private static ReentrantReadWriteLock irrevocableAccessLock = new ReentrantReadWriteLock();
 	private boolean irrevocableState = false;
 	
 	// Instance members - specific to each thread
-	private final ContentionManager cm = Factory.createContentionManager();
+	private final int threadId = threadIdCounter.getAndIncrement();
+	private final Statistics stats = new Statistics(threadId);
 	private final ReadSet readSet = new ReadSet();
 	private final WriteSet writeSet = new WriteSet();
-	private final AtomicInteger statusRecord = new AtomicInteger(0);
-	private final AtomicInteger karma = new AtomicInteger(0);
-	private final AtomicInteger killKarma = new AtomicInteger(0);
-	private final UpdateAndUnlockProcedure updateAndUnlockProcedure = new UpdateAndUnlockProcedure();
+	private final AtomicInteger localClock;
+	private final AtomicReference<Phase> phase;
+	private final AtomicInteger priority;
+	private final AtomicInteger timestamp;
+	private int atomicBlockId;
+	private int versionOfLastReadLock;
+	
 	private final TObjectProcedure<WriteFieldAccess> putProcedure = new TObjectProcedure<WriteFieldAccess>(){
+
 		@Override
 		public boolean execute(WriteFieldAccess writeField) {
 			writeField.put();
 			return true;
 		}
+		
 	};
-	private final int threadId;
-	private int rv;
-	private int atomicBlockId;
-	private int lastReadLockVersion;
-	private int localClock;
-	private int attempts;
-	private final Statistics stats;	
 	
+	private static class UpdateAndUnlockProcedure implements TObjectProcedure<WriteFieldAccess>{
+
+		private int newClock;
+
+		@Override
+		public boolean execute(WriteFieldAccess writeField) {
+			LockTable.updateAndUnlock(writeField.hashCode(), newClock);
+			return true;
+		}
+		
+		
+		public void setNewClock(int newClock){
+			this.newClock = newClock;
+		}
+	}
+	
+	private final UpdateAndUnlockProcedure updateAndUnlockProcedure = new UpdateAndUnlockProcedure();
+
 	// Static initialization
 	static {
 		try {
 			System.out.println("TL2CM Initialized:");
-			System.out.println("Contention Manager: " + Factory.createContentionManager().getDescription());
+			System.out.println("Contention Manager: " + cm.getDescription());
 		} 
 		catch (Exception e) {
 			e.printStackTrace();
@@ -86,20 +108,20 @@ final public class Context implements org.deuce.transaction.Context {
 	}
 	
 	public Context() {
-		threadId = threadIdCounter.getAndIncrement();
-		int maxThreads = (int) Math.pow(2, LockTable.OWNERSIZE);
-		if (threadId > maxThreads) {
-			System.err.println("Too many threads in the system. Max number of threads allowed is " + maxThreads);
-			System.exit(1);
-		}
-		stats = new Statistics(threadId);
-		this.localClock = 0;
-		threads[threadId] = this;
+		this.localClock = new AtomicInteger(0);
+		this.priority = new AtomicInteger(0);
+		this.timestamp = new AtomicInteger(0);
+		this.phase = new AtomicReference<Phase>(Phase.COMMITTED);
+		threads.put(threadId, this);
 	}
 	
-	public final void init(int atomicBlockId, String metainf) {
-		this.atomicBlockId = atomicBlockId;
-		this.cm.init();
+	@Override
+	protected void finalize() throws Throwable {
+		this.phase.set(Phase.INACTIVE);
+		super.finalize();
+	}
+	
+	public void init(int atomicBlockId, String metainf) {
 		this.readSet.clear();
 		this.writeSet.clear();
 		this.objectPool.clear();
@@ -118,76 +140,68 @@ final public class Context implements org.deuce.transaction.Context {
 		else
 			irrevocableAccessLock.readLock().lock();
 		
-		this.rv = globalClock.get();
-		this.attempts++;
+		int currentClock = clock.get();
+		this.localClock.set(currentClock);
+		if (cm.requiresTimestamps() && phase.get().equals(Phase.COMMITTED)) {
+			// Only if the last transaction committed we issue a new timestamp
+			// otherwise we continue with the old one 
+			this.timestamp.set(currentClock);
+		} 
 		
-		// Reset localClock if max value reached
-		if (localClock < (1 << LockTable.OWNERCLOCK_SIZE)) {
-			this.localClock++;
-		}
-		else {
-			this.localClock = 0;
-		}
-		int statusRecord = generateStatusRecord(TX_RUNNING, localClock);
-		this.statusRecord.set(statusRecord);
+		this.atomicBlockId = atomicBlockId;
+		this.phase.set(Phase.RUNNING);
 		this.stats.reportTxStart();
 	}
 
-	public final boolean commit() {
+	public boolean commit() {
 		try{
-			this.stats.reportOnCommit(readSet.size(), writeSet.size());
-			// Read-only transactions don't have to do anything in order to commit
-			if (writeSet.isEmpty()) {
-				this.stats.reportCommit(attempts);
-				resetPriorities();
-				return true;
-			}
+		this.stats.reportOnCommit(readSet.size(), writeSet.size());
 
-			// Writing transactions have to go through a different algorithm
-			int lockedCounter = lockWriteSet();
-			if (lockedCounter == writeSet.size()) {
-				boolean readSetValidated = readSet.validate(rv);
-				if (readSetValidated) {
-					int expectedStatusRecord = generateStatusRecord(TX_RUNNING, localClock);
-					int newStatusRecord = generateStatusRecord(TX_COMMITTED, localClock);
-					boolean committed = statusRecord.compareAndSet(expectedStatusRecord, newStatusRecord);
-					if (committed) {
-						// Get a new version number
-						int newClock = globalClock.incrementAndGet();
-
-						// Write values to memory
-						writeSet.forEach(putProcedure);
-
-						// Update and release locks
-						updateAndUnlockProcedure.setNewClock(newClock);
-						writeSet.forEach(updateAndUnlockProcedure);
-
-						this.stats.reportCommit(attempts);
-						resetPriorities();
-						return true;
+		// Read-only transactions don't have to do anything in order to commit
+		if (writeSet.isEmpty()) {
+			this.stats.reportCommit();
+			return true;
+		}
+		
+		// Writing transaction have to go through a different algorithm
+		List<WriteSetIteratorElement> lockedList = lockWriteSet();
+		if (lockedList.size() == writeSet.size()) {
+			boolean readSetValidated = readSet.isConsistent(localClock.get());
+			if (readSetValidated) {
+				boolean committed = phase.compareAndSet(Phase.RUNNING, Phase.COMMITTED);
+				if (committed) {
+					// Get a new version number
+					int newClock = clock.incrementAndGet();
+					// Write values to memory
+					writeSet.forEach(putProcedure);
+					
+					updateAndUnlockProcedure.setNewClock(newClock);
+					// Update and release locks
+					writeSet.forEach(updateAndUnlockProcedure);
+					
+					if (cm.requiresPriorities()) {
+						priority.set(0);
 					}
-					else {
-						this.stats.reportAbort(AbortType.COMMIT_KILLED); 
-					}
-				}
-				else {
-					this.stats.reportAbort(AbortType.COMMIT_READSET_VALIDATION); 
+					this.stats.reportCommit();
+					return true;
 				}
 			}
 			else {
-				this.stats.reportWriteSetValidationFailureDuringCommit(lockedCounter+1);
-				this.stats.reportAbort(AbortType.COMMIT_WRITESET_LOCKING);
+				this.stats.reportAbort(AbortType.COMMIT_READSET_VALIDATION);
 			}
-
-			// Commit did not succeed, roll-back all the changes
-			Iterator<WriteFieldAccess> iter = writeSet.iterator();
-			while (lockedCounter > 0) {
-				WriteFieldAccess field = iter.next();
-				int hash = field.hashCode();
-				LockTable.unLock(hash, threadId);
-				lockedCounter--;
-			}
-			return false;
+		}
+		else {
+			this.stats.reportWriteSetValidationFailureDuringCommit(lockedList.size()+1);
+			this.stats.reportAbort(AbortType.COMMIT_WRITESET_LOCKING);
+		}
+		
+		// Commit did not succeed, change phase and unlock the locks I did acquire
+		this.phase.set(Phase.ABORTED);
+		for (WriteSetIteratorElement elem : lockedList) {
+			int hash = elem.getField().hashCode();
+			LockTable.unLock(hash, threadId, -1);
+		}
+		return false;
 
 		}
 		finally{
@@ -198,35 +212,53 @@ final public class Context implements org.deuce.transaction.Context {
 			else{
 				irrevocableAccessLock.readLock().unlock();
 			}
-
 		}
 	}
-
 	public final void rollback() {
 		irrevocableAccessLock.readLock().unlock();
 	}
 	
-	public final boolean kill(int clockValue) {
-		if (clockValue == -1) {
-			// The transaction killed itself. No need to CAS - if someone else killed
-			// me before I can just override the variable
-			int newStatusRecord = generateStatusRecord(TX_ABORTED, 0);
-			statusRecord.set(newStatusRecord);
-			return true;
-		}
-		else {
-			int expectedStatusRecord = generateStatusRecord(TX_RUNNING, clockValue);
-			int newStatusRecord = generateStatusRecord(TX_ABORTED, clockValue);
-			return statusRecord.compareAndSet(expectedStatusRecord, newStatusRecord);
-		}
+	/**
+	 * Kills this transaction if it is still running
+	 * @return true if the kill operation succeeded, false otherwise
+	 */
+	public boolean kill() {
+		return phase.compareAndSet(Phase.RUNNING, Phase.ABORTED);
 	}
 	
 	/**
 	 * Gets the Id of this thread
 	 * @return Id of this thread
 	 */
-	public final int getThreadId() {
+	public int getThreadId() {
 		return threadId;
+	}
+
+	/**
+	 * Returns the phase of this transaction
+	 * @return phase of this transaction
+	 */
+	public Phase getPhase() {
+		return this.phase.get();
+	}
+	
+	/**
+	 * Gets the clock value of the current transaction
+	 * @return clock value of the current transaction
+	 */
+	public int getLocalClock() {
+		return localClock.get();
+	}
+	
+	/**
+	 * Gets the timestamp of the current transaction. The timestamp
+	 * of the current transaction is the local clock value of the 
+	 * first attempt made by this thread to execute the current 
+	 * transaction. 
+	 * @return timestamp of the current transaction
+	 */
+	public int getTimestamp() {
+		return timestamp.get();
 	}
 
 	/**
@@ -235,23 +267,11 @@ final public class Context implements org.deuce.transaction.Context {
 	 * thread has opened and not committed on.
 	 * @return thread's priority
 	 */
-	public final int getPriority() {
-		return karma.get();
+	public int getPriority() {
+		return priority.get();
 	}
 
-	public final void changePriority(int delta) {
-		karma.addAndGet(delta);
-	}
-	
-	public final int getKillPriority() {
-		return killKarma.get();
-	}
-
-	public final void changeKillPriority(int delta) {
-		killKarma.addAndGet(delta);
-	}
-	
-	public final Statistics getStatistics() {
+	public Statistics getStatistics() {
 		return stats;
 	}
 
@@ -263,188 +283,161 @@ final public class Context implements org.deuce.transaction.Context {
 		sb.append(", TX=");
 		sb.append(atomicBlockId);
 		sb.append(", localClock=");
-		sb.append(rv);
+		sb.append(localClock);
 		sb.append(", globalClock=");
-		sb.append(globalClock.get());
+		sb.append(clock.get());
 		sb.append(" writeSet=");
 		sb.append(writeSet.size());
-		sb.append(", prio=");
-		sb.append(getPriority());
+		if (cm.requiresPriorities()) {
+			sb.append(", priority=");
+			sb.append(priority.get());
+		}
 		String str = sb.toString();
 		return str;
 	}
 
-	private final void resetPriorities() {
-		if (cm.requiresPriorities()) {
-			karma.set(0);
-		}
-		if (cm.requiresKillPriorities()) {
-			killKarma.set(0);
-		}
-		attempts = 0;
-	}
-	
-	private final boolean isStillAlive() {
-		int statusRecord = this.statusRecord.get();
-		return getTxStatus(statusRecord) == TX_RUNNING;
-	}
-	
-	private final int lockWriteSet() {
-		int lockedCounter = 0;
+	private List<WriteSetIteratorElement> lockWriteSet() {
 		boolean killedByCM = false;
-		Iterator<WriteFieldAccess> iter = writeSet.iterator();
-		while (!killedByCM && iter.hasNext() && isStillAlive()) {
-			WriteFieldAccess writeField = iter.next();
+		WriteSetIterator wsIter = new WriteSetIterator(writeSet);
+		while (!killedByCM && !wsIter.isEmpty() && phase.get().equals(Phase.RUNNING)) {
+			WriteFieldAccess writeField = wsIter.getLock();
 			// Attempt to acquire this lock as long as we did not get a command to restart/skip by 
 			// a contention manager or some other thread killed us
-			while (!killedByCM && isStillAlive()) {
+			while (!killedByCM && phase.get().equals(Phase.RUNNING)) {
 				boolean lockedByForce = false;
-				int hash = writeField.hashCode();
-				long[] res = LockTable.lock(hash, threadId, localClock);
-				long originalLock = res[1];
-				if (res[0] == 2) {
+				long lock = LockTable.lock(writeField.hashCode(), threadId, localClock.get());
+				int lockOwner = LockTable.getOwner(lock);
+				if (lockOwner == -1) {
 					// Lock appeared to be free, but when I tried to CAS it, I failed. The owner of the
 					// lock is not known to me, therefore I can't efficiently do contention management, so I just retry.
 					continue;
 				}
-				else if (res[0] == 1) {
-					// Lock was not acquired, but the owner of the lock is known
-					int lockOwner = LockTable.getOwner(originalLock);
-					Context otherCtx = threads[lockOwner];
-					Action action = cm.resolveWriteConflict(writeField, this, otherCtx);
-					if (action.equals(Action.RESTART)) {
-						killedByCM = true;
-						break;
-					}
-					else if (action.equals(Action.RETRY)) {
+				else if (threadId != lockOwner) {	
+					// Lock is owned by some other thread. Activating Contention Management
+					Context otherCtx = threads.get(lockOwner);
+					if (otherCtx.getPhase().equals(Phase.INACTIVE)) {
+						// This can happen if the other thread will no longer run transactions, but I 
+						// conflicted with it (before it changes it's phase to INACTIVE). The best thing to do
+						// is to retry the lock in hopes no one else locked it in the meantime.
 						continue;
 					}
-					else if (action.equals(Action.STEAL_LOCK)) {
-						int version = LockTable.getVersion(originalLock);
-						lockedByForce = LockTable.forceLock(hash, threadId, localClock, version, originalLock);
-						if (!lockedByForce) {
-							res = LockTable.lock(hash, threadId, localClock);
+					else {
+						Action action = cm.resolve(writeField, this, otherCtx);
+						if (action.equals(Action.RESTART)) {
+							// this will cause my transaction to roll-back and restart itself
+							killedByCM = true;
+							break;
+						}
+						else if (action.equals(Action.RETRY_LOCK)) {
+							continue;
+						}
+						else if (action.equals(Action.STEAL_LOCK)) {
+							int versionForStealing = clock.incrementAndGet();
+							lockedByForce = LockTable.forceLock(writeField.hashCode(), lock, threadId, versionForStealing);
+						}
+						else if (action.equals(Action.SKIP_LOCK)) {
+							wsIter.skipLock();
+							continue;
 						}
 					}
 				}
-				
-				if (res[0] == 0 || lockedByForce){
-					lockedCounter++;
+				if (threadId == lockOwner || lockedByForce){
+					// Lock is acquired!
+					//trace("Lock #{0} acquired", new Object[]{lockedCounter});
 					if (cm.requiresPriorities()) {
-						karma.addAndGet(10);
+						priority.incrementAndGet();
 					}
+					wsIter.lockAcquired(lockedByForce);
 					break;	// continue to next lock
 				}
 			}
 		}
-		return lockedCounter;
+		return wsIter.getAcquiredLocks();
 	} 
 
 	
-	private final WriteFieldAccess onReadAccess0(Object obj, long field) {
+	private WriteFieldAccess onReadAccess0(Object obj, long field, int advice) {
 		ReadFieldAccess current = readSet.getCurrent();
 		int hash = current.hashCode();
 		long lock = LockTable.getLock(hash);
+		int version = LockTable.getVersion(lock);
+		
 		// We want to make sure the lock hasn't changed
 		// to be sure we read a consistent value from memory 
-		while (LockTable.isLocked(lock)) {
-			int lockOwner = LockTable.getOwner(lock);
-			Context ownerCtx = threads[lockOwner];
-			Action action = cm.resolveReadConflict(current, this, ownerCtx);
-			if (action.equals(Action.RESTART)) {
-				stats.reportAbort(AbortType.SPECULATION_LOCATION_LOCKED);
-				throw FAILURE_EXCEPTION;
-			}
-			if (action.equals(Action.RETRY)) {
-				lock = LockTable.getLock(hash);
-				continue;
-			}
-			if (action.equals(Action.CONTINUE)) {
-				break;
-			}
-		}
-		int version = LockTable.getVersion(lock);
-		if (version > lastReadLockVersion) {
+		if (version != versionOfLastReadLock) {
 			stats.reportAbort(AbortType.SPECULATION_READVERSION);
 			throw FAILURE_EXCEPTION;
 		}
-		if (cm.requiresPriorities()) {
-			karma.incrementAndGet();
+		if (LockTable.isLocked(lock)) {
+			stats.reportAbort(AbortType.SPECULATION_LOCATION_LOCKED);
+			throw FAILURE_EXCEPTION;
 		}
-		cm.init();
+		
+		// Check if the location is already included in the write set
 		return writeSet.contains(current);
 	}
 
-	private final void addWriteAccess0(WriteFieldAccess write) {
+	private void addWriteAccess0(WriteFieldAccess write) {
+		//trace("adding write to hash={0}", new Object[]{write.hashCode()});
 		writeSet.put(write);
 	}
 
-	private static final int generateStatusRecord(int status, int clock) {
-		int statusRecord = (status << LockTable.OWNERCLOCK_SIZE) | clock;
-		return statusRecord;
-	}
-	
-	public static final int getTxStatus(int statusRecord) {
-		int status = statusRecord >> LockTable.OWNERCLOCK_SIZE;
-		return status;
-	}
-	
-	public static final int getTxLocalClock(int statusRecord) {
-		return statusRecord & ((1<<LockTable.OWNERCLOCK_SIZE)-1);
-	}
-	
-	public final int getStatusRecord() {
-		return this.statusRecord.get();
-	}
-	
-	public final void beforeReadAccess(Object obj, long field) {
-		ReadFieldAccess current = readSet.getNext();
-		current.init(obj, field);
+//	private void trace(String message, Object[] params) {
+//		StringBuilder sb = new StringBuilder(message);
+//		sb.append(this.toString());
+//		String str = sb.toString();
+//		logger.log(Level.INFO, str, params);
+//	}
+
+	public void beforeReadAccess(Object obj, long field, int advice) {
+		ReadFieldAccess next = readSet.getNext();
+		next.init(obj, field, advice);
 		// Check that the location's version is consistent with 
 		// localClock. If not, throw an exception
-		int hash = current.hashCode();
+		int hash = next.hashCode();
 		long lock = LockTable.getLock(hash);
-		lastReadLockVersion = LockTable.getVersion(lock);
-		if (lastReadLockVersion > rv) {
+		versionOfLastReadLock = LockTable.getVersion(lock);
+		if (versionOfLastReadLock > localClock.get()) {
 			stats.reportAbort(AbortType.SPECULATION_READVERSION);
 			throw FAILURE_EXCEPTION;
 		}
+		// The version of the location is consistent
 	}
 
-	public Object onReadAccess(Object obj, Object value, long field) {
-		WriteFieldAccess writeAccess = onReadAccess0(obj, field);
+	public Object onReadAccess(Object obj, Object value, long field, int advice) {
+		WriteFieldAccess writeAccess = onReadAccess0(obj, field, advice);
 		if (writeAccess == null)
 			return value;
 
 		return ((ObjectWriteFieldAccess) writeAccess).getValue();
 	}
 
-	public boolean onReadAccess(Object obj, boolean value, long field) {
-		WriteFieldAccess writeAccess = onReadAccess0(obj, field);
+	public boolean onReadAccess(Object obj, boolean value, long field, int advice) {
+		WriteFieldAccess writeAccess = onReadAccess0(obj, field, advice);
 		if (writeAccess == null)
 			return value;
 
 		return ((BooleanWriteFieldAccess) writeAccess).getValue();
 	}
 
-	public byte onReadAccess(Object obj, byte value, long field) {
-		WriteFieldAccess writeAccess = onReadAccess0(obj, field);
+	public byte onReadAccess(Object obj, byte value, long field, int advice) {
+		WriteFieldAccess writeAccess = onReadAccess0(obj, field, advice);
 		if (writeAccess == null)
 			return value;
 
 		return ((ByteWriteFieldAccess) writeAccess).getValue();
 	}
 
-	public char onReadAccess(Object obj, char value, long field) {
-		WriteFieldAccess writeAccess = onReadAccess0(obj, field);
+	public char onReadAccess(Object obj, char value, long field, int advice) {
+		WriteFieldAccess writeAccess = onReadAccess0(obj, field, advice);
 		if (writeAccess == null)
 			return value;
 
 		return ((CharWriteFieldAccess) writeAccess).getValue();
 	}
 
-	public short onReadAccess(Object obj, short value, long field) {
-		WriteFieldAccess writeAccess = onReadAccess0(obj, field);
+	public short onReadAccess(Object obj, short value, long field, int advice) {
+		WriteFieldAccess writeAccess = onReadAccess0(obj, field, advice);
 		if (writeAccess == null)
 			return value;
 
@@ -452,188 +445,163 @@ final public class Context implements org.deuce.transaction.Context {
 
 	}
 
-	public int onReadAccess(Object obj, int value, long field) {
-		WriteFieldAccess writeAccess = onReadAccess0(obj, field);
+	public int onReadAccess(Object obj, int value, long field, int advice) {
+		WriteFieldAccess writeAccess = onReadAccess0(obj, field, advice);
 		if (writeAccess == null)
 			return value;
 
 		return ((IntWriteFieldAccess) writeAccess).getValue();
 	}
 
-	public long onReadAccess(Object obj, long value, long field) {
-		WriteFieldAccess writeAccess = onReadAccess0(obj, field);
+	public long onReadAccess(Object obj, long value, long field, int advice) {
+		WriteFieldAccess writeAccess = onReadAccess0(obj, field, advice);
 		if (writeAccess == null)
 			return value;
 
 		return ((LongWriteFieldAccess) writeAccess).getValue();
 	}
 
-	public float onReadAccess(Object obj, float value, long field) {
-		WriteFieldAccess writeAccess = onReadAccess0(obj, field);
+	public float onReadAccess(Object obj, float value, long field, int advice) {
+		WriteFieldAccess writeAccess = onReadAccess0(obj, field, advice);
 		if (writeAccess == null)
 			return value;
 
 		return ((FloatWriteFieldAccess) writeAccess).getValue();
 	}
 
-	public double onReadAccess(Object obj, double value, long field) {
-		WriteFieldAccess writeAccess = onReadAccess0(obj, field);
+	public double onReadAccess(Object obj, double value, long field, int advice) {
+		WriteFieldAccess writeAccess = onReadAccess0(obj, field, advice);
 		if (writeAccess == null)
 			return value;
 
 		return ((DoubleWriteFieldAccess) writeAccess).getValue();
 	}
 
-	public void onWriteAccess(Object obj, Object value, long field) {
+	public void onWriteAccess(Object obj, Object value, long field, int advice) {
 		ObjectWriteFieldAccess next = objectPool.getNext();
-		next.set(value, obj, field);
+		next.set(value, obj, field, advice);
 		addWriteAccess0(next);
 	}
 
-	public void onWriteAccess(Object obj, boolean value, long field) {
+	public void onWriteAccess(Object obj, boolean value, long field, int advice) {
 
 		BooleanWriteFieldAccess next = booleanPool.getNext();
-		next.set(value, obj, field);
+		next.set(value, obj, field, advice);
 		addWriteAccess0(next);
 	}
 
-	public void onWriteAccess(Object obj, byte value, long field) {
+	public void onWriteAccess(Object obj, byte value, long field, int advice) {
 
 		ByteWriteFieldAccess next = bytePool.getNext();
-		next.set(value, obj, field);
+		next.set(value, obj, field, advice);
 		addWriteAccess0(next);
 	}
 
-	public void onWriteAccess(Object obj, char value, long field) {
+	public void onWriteAccess(Object obj, char value, long field, int advice) {
 
 		CharWriteFieldAccess next = charPool.getNext();
-		next.set(value, obj, field);
+		next.set(value, obj, field, advice);
 		addWriteAccess0(next);
 	}
 
-	public void onWriteAccess(Object obj, short value, long field) {
+	public void onWriteAccess(Object obj, short value, long field, int advice) {
 
 		ShortWriteFieldAccess next = shortPool.getNext();
-		next.set(value, obj, field);
+		next.set(value, obj, field, advice);
 		addWriteAccess0(next);
 	}
 
-	public void onWriteAccess(Object obj, int value, long field) {
+	public void onWriteAccess(Object obj, int value, long field, int advice) {
 
 		IntWriteFieldAccess next = intPool.getNext();
-		next.set(value, obj, field);
+		next.set(value, obj, field, advice);
 		addWriteAccess0(next);
 	}
 
-	public void onWriteAccess(Object obj, long value, long field) {
+	public void onWriteAccess(Object obj, long value, long field, int advice) {
 
 		LongWriteFieldAccess next = longPool.getNext();
-		next.set(value, obj, field);
+		next.set(value, obj, field, advice);
 		addWriteAccess0(next);
 	}
 
-	public void onWriteAccess(Object obj, float value, long field) {
+	public void onWriteAccess(Object obj, float value, long field, int advice) {
 
 		FloatWriteFieldAccess next = floatPool.getNext();
-		next.set(value, obj, field);
+		next.set(value, obj, field, advice);
 		addWriteAccess0(next);
 	}
 
-	public void onWriteAccess(Object obj, double value, long field) {
+	public void onWriteAccess(Object obj, double value, long field, int advice) {
 
 		DoubleWriteFieldAccess next = doublePool.getNext();
-		next.set(value, obj, field);
+		next.set(value, obj, field, advice);
 		addWriteAccess0(next);
 	}
 
-	private class UpdateAndUnlockProcedure implements TObjectProcedure<WriteFieldAccess>{
-	
-		private int newClock;
-	
-		@Override
-		public boolean execute(WriteFieldAccess writeField) {
-			LockTable.updateAndUnlock(writeField.hashCode(), newClock);
-			return true;
-		}
-		
-		
-		public void setNewClock(int newClock){
-			this.newClock = newClock;
-		}
-	}
-	
-	private static class ObjectResourceFactory implements ResourceFactory<ObjectWriteFieldAccess>{
-		@Override
-		public ObjectWriteFieldAccess newInstance() {
-			return new ObjectWriteFieldAccess();
-		}
-	}
-	final private Pool<ObjectWriteFieldAccess> objectPool = new Pool<ObjectWriteFieldAccess>(new ObjectResourceFactory());
+	private Pool<ObjectWriteFieldAccess> objectPool = new Pool<ObjectWriteFieldAccess>(
+			new ResourceFactory<ObjectWriteFieldAccess>() {
+				public ObjectWriteFieldAccess newInstance() {
+					return new ObjectWriteFieldAccess();
+				}
+			});
 
-	private static class BooleanResourceFactory implements ResourceFactory<BooleanWriteFieldAccess>{
-		@Override
-		public BooleanWriteFieldAccess newInstance() {
-			return new BooleanWriteFieldAccess();
-		}
-	}
-	final private Pool<BooleanWriteFieldAccess> booleanPool = new Pool<BooleanWriteFieldAccess>(new BooleanResourceFactory());
+	private Pool<BooleanWriteFieldAccess> booleanPool = new Pool<BooleanWriteFieldAccess>(
+			new ResourceFactory<BooleanWriteFieldAccess>() {
+				public BooleanWriteFieldAccess newInstance() {
+					return new BooleanWriteFieldAccess();
+				}
+			});
 
-	private static class ByteResourceFactory implements ResourceFactory<ByteWriteFieldAccess>{
-		@Override
-		public ByteWriteFieldAccess newInstance() {
-			return new ByteWriteFieldAccess();
-		}
-	}
-	final private Pool<ByteWriteFieldAccess> bytePool = new Pool<ByteWriteFieldAccess>( new ByteResourceFactory());
+	private Pool<ByteWriteFieldAccess> bytePool = new Pool<ByteWriteFieldAccess>(
+			new ResourceFactory<ByteWriteFieldAccess>() {
+				public ByteWriteFieldAccess newInstance() {
+					return new ByteWriteFieldAccess();
+				}
+			});
 
-	private static class CharResourceFactory implements ResourceFactory<CharWriteFieldAccess>{
-		@Override
-		public CharWriteFieldAccess newInstance() {
-			return new CharWriteFieldAccess();
-		}
-	}
-	final private Pool<CharWriteFieldAccess> charPool = new Pool<CharWriteFieldAccess>(new CharResourceFactory());
+	private Pool<CharWriteFieldAccess> charPool = new Pool<CharWriteFieldAccess>(
+			new ResourceFactory<CharWriteFieldAccess>() {
+				public CharWriteFieldAccess newInstance() {
+					return new CharWriteFieldAccess();
+				}
+			});
 
-	private static class ShortResourceFactory implements ResourceFactory<ShortWriteFieldAccess>{
-		@Override
-		public ShortWriteFieldAccess newInstance() {
-			return new ShortWriteFieldAccess();
-		}
-	}
-	final private Pool<ShortWriteFieldAccess> shortPool = new Pool<ShortWriteFieldAccess>( new ShortResourceFactory());
+	private Pool<ShortWriteFieldAccess> shortPool = new Pool<ShortWriteFieldAccess>(
+			new ResourceFactory<ShortWriteFieldAccess>() {
+				public ShortWriteFieldAccess newInstance() {
+					return new ShortWriteFieldAccess();
+				}
+			});
 
-	private static class IntResourceFactory implements ResourceFactory<IntWriteFieldAccess>{
-		@Override
-		public IntWriteFieldAccess newInstance() {
-			return new IntWriteFieldAccess();
-		}
-	}
-	final private Pool<IntWriteFieldAccess> intPool = new Pool<IntWriteFieldAccess>( new IntResourceFactory());
+	private Pool<IntWriteFieldAccess> intPool = new Pool<IntWriteFieldAccess>(
+			new ResourceFactory<IntWriteFieldAccess>() {
+				public IntWriteFieldAccess newInstance() {
+					return new IntWriteFieldAccess();
+				}
+			});
 
-	private static class LongResourceFactory implements ResourceFactory<LongWriteFieldAccess>{
-		@Override
-		public LongWriteFieldAccess newInstance() {
-			return new LongWriteFieldAccess();
-		}
-	}
-	final private Pool<LongWriteFieldAccess> longPool = new Pool<LongWriteFieldAccess>( new LongResourceFactory());
-	
-	private static class FloatResourceFactory implements ResourceFactory<FloatWriteFieldAccess>{
-		@Override
-		public FloatWriteFieldAccess newInstance() {
-			return new FloatWriteFieldAccess();
-		}
-	}
-	final private Pool<FloatWriteFieldAccess> floatPool = new Pool<FloatWriteFieldAccess>( new FloatResourceFactory());
-	
-	private static class DoubleResourceFactory implements ResourceFactory<DoubleWriteFieldAccess>{
-		@Override
-		public DoubleWriteFieldAccess newInstance() {
-			return new DoubleWriteFieldAccess();
-		}
-	}
-	final private Pool<DoubleWriteFieldAccess> doublePool = new Pool<DoubleWriteFieldAccess>( new DoubleResourceFactory());
-	
+	private Pool<LongWriteFieldAccess> longPool = new Pool<LongWriteFieldAccess>(
+			new ResourceFactory<LongWriteFieldAccess>() {
+				public LongWriteFieldAccess newInstance() {
+					return new LongWriteFieldAccess();
+				}
+			});
+
+	private Pool<FloatWriteFieldAccess> floatPool = new Pool<FloatWriteFieldAccess>(
+			new ResourceFactory<FloatWriteFieldAccess>() {
+				public FloatWriteFieldAccess newInstance() {
+					return new FloatWriteFieldAccess();
+				}
+			});
+
+	private Pool<DoubleWriteFieldAccess> doublePool = new Pool<DoubleWriteFieldAccess>(
+			new ResourceFactory<DoubleWriteFieldAccess>() {
+				public DoubleWriteFieldAccess newInstance() {
+					return new DoubleWriteFieldAccess();
+				}
+			});
+
 	@Override
 	public void onIrrevocableAccess() {
 		if(irrevocableState) // already in irrevocable state so no need to restart transaction.

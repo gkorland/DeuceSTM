@@ -1,75 +1,56 @@
 package org.deuce.transaction.tl2cm.cm;
 
 import org.deuce.transaction.tl2cm.Context;
-import org.deuce.transaction.tl2cm.field.ReadFieldAccess;
-import org.deuce.transaction.tl2cm.field.WriteFieldAccess;
+import org.deuce.transaction.tl2.field.WriteFieldAccess;
 import org.deuce.transform.Exclude;
 
 /**
  * The Karma contention manager resolves conflicts by comparing the priorities of
- * the conflicting threads. Karma employs a constant back-off period between subsequent attempts to acquire a lock. 
+ * the conflicting threads. For more information regarding priorities see {@link Context.getPriority()}. The
+ * thread that is supposed to wait waits for a constant period of time.
  * 
  * @author Yoav Cohen, yoav.cohen@cs.tau.ac.il
  * @since 1.2
  */
 @Exclude
-public class Karma extends AbstractContentionManager {
+public class Karma extends BackoffCM {
 
+	//private static final Logger logger = Logger.getLogger(Context.TL2CM_LOGGER);
 	private static int BACKOFF_PERIOD = (int) Math.pow(10, 4);
-	private int counter = 0;
 	
 	public Karma(int k) {
 		BACKOFF_PERIOD = (int) Math.pow(10, k);
 	}
 
-	@Override
-	public void init() {
-		counter = 0;
-	}
-
-	public Action resolveReadConflict(ReadFieldAccess readField, Context me, Context other) {
-		int statusRecord = other.getStatusRecord();
-		int myPrio = me.getPriority();
+	public Action resolve(WriteFieldAccess contentionPoint, Context contending, Context other) {
+		int myPrio = contending.getPriority();
 		int otherPrio = other.getPriority();
-		if (myPrio + counter > otherPrio) {
-			if (Context.getTxStatus(statusRecord) == Context.TX_ABORTED || other.kill(Context.getTxLocalClock(statusRecord))) {
-				return Action.CONTINUE;
-			}
-			else {
-				me.kill(-1);
-				return Action.RESTART;
-			}
+		BackoffData myState = getBackoffData();
+		int myCurrTimestamp = contending.getLocalClock();
+		// Check if the thread is running a new transaction
+		// and if so we need to update the thread's state
+		if (myState.originalTimestamp < myCurrTimestamp) {
+			myState.originalTimestamp = myCurrTimestamp;
+			myState.counter = 1;
 		}
-		counter++;
-		for (int i=0; i<BACKOFF_PERIOD; i++);
-		return Action.RETRY;
-	}
-
-	public Action resolveWriteConflict(WriteFieldAccess writeField, Context me, Context other) {
-		int myPrio = me.getPriority();
-		int otherPrio = other.getPriority();
-		if (myPrio + counter > otherPrio) {
-			int statusRecord = other.getStatusRecord();
-			// It is not allowed to steal a lock before the other transaction is aborted
-			if (Context.getTxStatus(statusRecord) == Context.TX_ABORTED || other.kill(Context.getTxLocalClock(statusRecord))) {
-				return Action.RETRY;
-			}
-			else {
-				me.kill(-1);
-				return Action.RESTART;
-			}
+		else if (myPrio + myState.counter > otherPrio) {
+			other.kill();
+			return Action.RETRY_LOCK;
 		}
-		counter++;
+		// increase back-off counter and loop until
+		// the time comes to retry	
+		//logger.log(Level.WARNING, "TID={0} performing backoff #{1}", new Object[]{contending.getThreadId(), myState.counter});
 		for (int i=0; i<BACKOFF_PERIOD; i++);
-		return Action.RETRY;
+		myState.counter++;
+		return Action.RETRY_LOCK;
 	}
-	 
+	
 	public boolean requiresPriorities() {
 		return true;
 	}
 
 	public String getDescription() {
-		return "Karma [Backoff=" + BACKOFF_PERIOD + "]";
+		return "Karma busy-waiting backoff [Backoff=" + BACKOFF_PERIOD + "]";
 	}
 
 }

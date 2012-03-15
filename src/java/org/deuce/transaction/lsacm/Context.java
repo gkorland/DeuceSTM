@@ -1,19 +1,16 @@
 package org.deuce.transaction.lsacm;
 
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.concurrent.ConcurrentHashMap;
 
 import org.deuce.transaction.TransactionException;
-import org.deuce.transaction.lsacm.field.Field;
-import org.deuce.transaction.lsacm.field.Field.Type;
-import org.deuce.transaction.lsacm.field.WriteFieldAccess;
-import org.deuce.transaction.lsacm.ReadSet;
-import org.deuce.transaction.lsacm.WriteSet;
-import org.deuce.transaction.lsacm.ContentionManager;
 import org.deuce.transaction.lsacm.ContentionManager.ConflictType;
+import org.deuce.transaction.lsacm.field.Field;
+import org.deuce.transaction.lsacm.field.WriteFieldAccess;
+import org.deuce.transaction.lsacm.field.Field.Type;
 import org.deuce.transaction.util.BooleanArrayList;
 import org.deuce.transform.Exclude;
 
@@ -35,26 +32,28 @@ final public class Context implements org.deuce.transaction.Context {
 	final private static int STATUS_BITS = 3;
 	final private static int STATUS_MASK = (1 << STATUS_BITS) - 1;
 
-	final private static TransactionException WRITE_FAILURE_EXCEPTION =
-		new TransactionException("Fail on write (read previous version).");
+	final private static TransactionException WRITE_FAILURE_EXCEPTION = new TransactionException(
+			"Fail on write (read previous version).");
 
-	final private static TransactionException EXTEND_FAILURE_EXCEPTION =
-		new TransactionException("Fail on extend.");
+	final private static TransactionException EXTEND_FAILURE_EXCEPTION = new TransactionException(
+			"Fail on extend.");
 
-	final private static TransactionException READ_ONLY_FAILURE_EXCEPTION =
-		new TransactionException("Fail on write (read-only hint was set).");
+	final private static TransactionException READ_ONLY_FAILURE_EXCEPTION = new TransactionException(
+			"Fail on write (read-only hint was set).");
 
-	final private static TransactionException KILLED_EXCEPTION =
-		new TransactionException("Transaction has been killed.");
+	final private static TransactionException KILLED_EXCEPTION = new TransactionException(
+			"Transaction has been killed.");
 
 	final private static AtomicLong clock = new AtomicLong(0);
 	final private static AtomicInteger threadID = new AtomicInteger(0);
 
 	final private static Map<Integer, Context> threads = new ConcurrentHashMap<Integer, Context>();
 
-	final private static boolean RO_HINT = Boolean.getBoolean("org.deuce.transaction.lsacm.rohint");
+	final private static boolean RO_HINT = Boolean
+			.getBoolean("org.deuce.transaction.lsacm.rohint");
 
-	final private static int VR_THRESHOLD = Integer.getInteger("org.deuce.transaction.lsacm.vr", 0);
+	final private static int VR_THRESHOLD = Integer.getInteger(
+			"org.deuce.transaction.lsacm.vr", 0);
 
 	final private static ContentionManager cm;
 
@@ -75,14 +74,14 @@ final public class Context implements org.deuce.transaction.Context {
 	private Object readValue;
 
 	// Can be accessed (read) by other transaction during contention management
-	private AtomicLong startTime;
+	private final AtomicLong startTime;
 	private long endTime;
-	private int id;
+	private final int id;
 
 	private int attempts;
 	private boolean vr;
 
-	private AtomicInteger status;
+	private final AtomicInteger status;
 
 	static {
 		// Set contention manager
@@ -95,7 +94,7 @@ final public class Context implements org.deuce.transaction.Context {
 				System.err.println("Cannot create contention manager: " + s);
 			}
 		}
-		cm = (ContentionManager)o;
+		cm = (ContentionManager) o;
 	}
 
 	public Context() {
@@ -108,12 +107,12 @@ final public class Context implements org.deuce.transaction.Context {
 		status = new AtomicInteger(TX_IDLE);
 	}
 
+	@Override
 	protected void finalize() throws Throwable {
 		threads.remove(id);
 		super.finalize();
 	}
 
-	@Override
 	public void init(int blockId, String metainf) {
 		readSet.clear();
 		writeSet.clear();
@@ -126,7 +125,8 @@ final public class Context implements org.deuce.transaction.Context {
 		
 		endTime = clock.get();
 		startTime.set(endTime);
-		status.set(((status.get() + (1 << STATUS_BITS)) & ~STATUS_MASK) | TX_ACTIVE);
+		status.set(((status.get() + (1 << STATUS_BITS)) & ~STATUS_MASK)
+				| TX_ACTIVE);
 		if (RO_HINT) {
 			atomicBlockId = blockId;
 			readWriteHint = readWriteMarkers.get(atomicBlockId);
@@ -135,15 +135,16 @@ final public class Context implements org.deuce.transaction.Context {
 		vr = (VR_THRESHOLD > 0 && VR_THRESHOLD <= attempts);
 	}
 
-	@Override
 	public boolean commit() {
 		try{
 			if (!writeSet.isEmpty()) {
 				int v = status.get();
 				int s = v & STATUS_MASK;
-				if (s == TX_ACTIVE && status.compareAndSet(v, v + (TX_COMMITTING - TX_ACTIVE))) {
+				if (s == TX_ACTIVE
+						&& status.compareAndSet(v, v + (TX_COMMITTING - TX_ACTIVE))) {
 					long newClock = clock.incrementAndGet();
-					if (newClock != startTime.get() + 1 && !readSet.validate(this, id)) {
+					if (newClock != startTime.get() + 1
+							&& !readSet.validate(this, id)) {
 						rollback0();
 						return false;
 					}
@@ -174,10 +175,8 @@ final public class Context implements org.deuce.transaction.Context {
 		}
 	}
 
-	@Override
 	public void rollback() {
 		rollback0();
-		
 		irrevocableAccessLock.readLock().unlock();
 	}
 	
@@ -189,7 +188,8 @@ final public class Context implements org.deuce.transaction.Context {
 				// Release locks
 				writeSet.rollback();
 				status.set(v + (TX_ABORTED - TX_COMMITTING));
-			} else if (s == TX_ACTIVE && status.compareAndSet(v, v + (TX_ABORTING - TX_ACTIVE))) {
+			} else if (s == TX_ACTIVE
+					&& status.compareAndSet(v, v + (TX_ABORTING - TX_ACTIVE))) {
 				// Release locks
 				writeSet.rollback();
 				status.set(v + (TX_ABORTED - TX_ACTIVE));
@@ -227,7 +227,8 @@ final public class Context implements org.deuce.transaction.Context {
 		// Kill other transaction
 		int v = tx.status.get();
 		int s = v & STATUS_MASK;
-		if (s == TX_ACTIVE && tx.status.compareAndSet(v, v + (TX_ABORTING - TX_ACTIVE))) {
+		if (s == TX_ACTIVE
+				&& tx.status.compareAndSet(v, v + (TX_ABORTING - TX_ACTIVE))) {
 			// Release locks
 			tx.writeSet.rollback();
 			tx.status.set(v + (TX_ABORTED - TX_ACTIVE));
@@ -255,8 +256,7 @@ final public class Context implements org.deuce.transaction.Context {
 		return false;
 	}
 
-	@Override
-	public void beforeReadAccess(Object obj, long field) {
+	public void beforeReadAccess(Object obj, long field, int advice) {
 		if (vr) {
 			readHash = LockTable.hash(obj, field);
 			// Lock entry in read mode (might throw an exception)
@@ -381,94 +381,85 @@ final public class Context implements org.deuce.transaction.Context {
 		}
 	}
 
-	@Override
-	public Object onReadAccess(Object obj, Object value, long field) {
+	public Object onReadAccess(Object obj, Object value, long field, int advice) {
 		return (onReadAccess(obj, field, Type.OBJECT) ? readValue : value);
 	}
 
-	@Override
-	public boolean onReadAccess(Object obj, boolean value, long field) {
-		return (onReadAccess(obj, field, Type.BOOLEAN) ? (Boolean) readValue : value);
+	public boolean onReadAccess(Object obj, boolean value, long field,
+			int advice) {
+		return (onReadAccess(obj, field, Type.BOOLEAN) ? (Boolean) readValue
+				: value);
 	}
 
-	@Override
-	public byte onReadAccess(Object obj, byte value, long field) {
-		return (onReadAccess(obj, field, Type.BYTE) ? ((Number) readValue).byteValue() : value);
+	public byte onReadAccess(Object obj, byte value, long field, int advice) {
+		return (onReadAccess(obj, field, Type.BYTE) ? ((Number) readValue)
+				.byteValue() : value);
 	}
 
-	@Override
-	public char onReadAccess(Object obj, char value, long field) {
-		return (onReadAccess(obj, field, Type.CHAR) ? (Character) readValue : value);
+	public char onReadAccess(Object obj, char value, long field, int advice) {
+		return (onReadAccess(obj, field, Type.CHAR) ? (Character) readValue
+				: value);
 	}
 
-	@Override
-	public short onReadAccess(Object obj, short value, long field) {
-		return (onReadAccess(obj, field, Type.SHORT) ? ((Number) readValue).shortValue() : value);
+	public short onReadAccess(Object obj, short value, long field, int advice) {
+		return (onReadAccess(obj, field, Type.SHORT) ? ((Number) readValue)
+				.shortValue() : value);
 	}
 
-	@Override
-	public int onReadAccess(Object obj, int value, long field) {
-		return (onReadAccess(obj, field, Type.INT) ? ((Number) readValue).intValue() : value);
+	public int onReadAccess(Object obj, int value, long field, int advice) {
+		return (onReadAccess(obj, field, Type.INT) ? ((Number) readValue)
+				.intValue() : value);
 	}
 
-	@Override
-	public long onReadAccess(Object obj, long value, long field) {
-		return (onReadAccess(obj, field, Type.LONG) ? ((Number) readValue).longValue() : value);
+	public long onReadAccess(Object obj, long value, long field, int advice) {
+		return (onReadAccess(obj, field, Type.LONG) ? ((Number) readValue)
+				.longValue() : value);
 	}
 
-	@Override
-	public float onReadAccess(Object obj, float value, long field) {
-		return (onReadAccess(obj, field, Type.FLOAT) ? ((Number) readValue).floatValue() : value);
+	public float onReadAccess(Object obj, float value, long field, int advice) {
+		return (onReadAccess(obj, field, Type.FLOAT) ? ((Number) readValue)
+				.floatValue() : value);
 	}
 
-	@Override
-	public double onReadAccess(Object obj, double value, long field) {
-		return (onReadAccess(obj, field, Type.DOUBLE) ? ((Number) readValue).doubleValue() : value);
+	public double onReadAccess(Object obj, double value, long field, int advice) {
+		return (onReadAccess(obj, field, Type.DOUBLE) ? ((Number) readValue)
+				.doubleValue() : value);
 	}
 
-	@Override
-	public void onWriteAccess(Object obj, Object value, long field) {
+	public void onWriteAccess(Object obj, Object value, long field, int advice) {
 		onWriteAccess(obj, field, value, Type.OBJECT);
 	}
 
-	@Override
-	public void onWriteAccess(Object obj, boolean value, long field) {
-		onWriteAccess(obj, field, (Object) value, Type.BOOLEAN);
+	public void onWriteAccess(Object obj, boolean value, long field, int advice) {
+		onWriteAccess(obj, field, value, Type.BOOLEAN);
 	}
 
-	@Override
-	public void onWriteAccess(Object obj, byte value, long field) {
-		onWriteAccess(obj, field, (Object) value, Type.BYTE);
+	public void onWriteAccess(Object obj, byte value, long field, int advice) {
+		onWriteAccess(obj, field, value, Type.BYTE);
 	}
 
-	@Override
-	public void onWriteAccess(Object obj, char value, long field) {
-		onWriteAccess(obj, field, (Object) value, Type.CHAR);
+	public void onWriteAccess(Object obj, char value, long field, int advice) {
+		onWriteAccess(obj, field, value, Type.CHAR);
 	}
 
-	@Override
-	public void onWriteAccess(Object obj, short value, long field) {
-		onWriteAccess(obj, field, (Object) value, Type.SHORT);
+	public void onWriteAccess(Object obj, short value, long field, int advice) {
+		onWriteAccess(obj, field, value, Type.SHORT);
 	}
 
-	@Override
-	public void onWriteAccess(Object obj, int value, long field) {
-		onWriteAccess(obj, field, (Object) value, Type.INT);
+	public void onWriteAccess(Object obj, int value, long field, int advice) {
+		onWriteAccess(obj, field, value, Type.INT);
 	}
 
-	@Override
-	public void onWriteAccess(Object obj, long value, long field) {
-		onWriteAccess(obj, field, (Object) value, Type.LONG);
+	public void onWriteAccess(Object obj, long value, long field, int advice) {
+		onWriteAccess(obj, field, value, Type.LONG);
 	}
 
-	@Override
-	public void onWriteAccess(Object obj, float value, long field) {
-		onWriteAccess(obj, field, (Object) value, Type.FLOAT);
+	public void onWriteAccess(Object obj, float value, long field, int advice) {
+		onWriteAccess(obj, field, value, Type.FLOAT);
 	}
 
-	@Override
-	public void onWriteAccess(Object obj, double value, long field) {
-		onWriteAccess(obj, field, (Object) value, Type.DOUBLE);
+	public void onWriteAccess(Object obj, double value, long field, int advice) {
+		onWriteAccess(obj, field, value, Type.DOUBLE);
 	}
 
 	@Override

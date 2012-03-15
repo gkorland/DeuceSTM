@@ -13,6 +13,8 @@ import org.deuce.benchmark.stmbench7.correctness.invariants.CheckInvariantsOpera
 import org.deuce.benchmark.stmbench7.correctness.opacity.SequentialReplayThread;
 import org.deuce.benchmark.stmbench7.correctness.opacity.StructureComparisonOperation;
 import org.deuce.benchmark.stmbench7.impl.NoSynchronizationInitializer;
+import org.deuce.benchmark.stmbench7.impl.deucestm.DeuceSTMInitializer;
+
 
 /**
  * STMBench7 benchmark, the main program. 
@@ -202,7 +204,10 @@ public class Benchmark {
 		catch(Exception e) {
 			throw new BenchmarkParametersException("Error instantiating STM initializer class", e);
 		}
-		
+
+		// force DeuceSTM:
+		// synchMethodInitializer = new DeuceSTMInitializer(); 
+    	
 		setFactoryInstances(synchMethodInitializer);
 	}
 

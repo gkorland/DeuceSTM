@@ -1,7 +1,6 @@
 package org.deuce.transaction.tl2;
 
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import org.deuce.transaction.TransactionException;
@@ -34,13 +33,13 @@ final public class Context implements org.deuce.transaction.Context{
 
 	final private ReadSet readSet = new ReadSet();
 	final private WriteSet writeSet = new WriteSet();
-	
+
 	private ReadFieldAccess currentReadFieldAccess = null;
-		
+
 	//Used by the thread to mark locks it holds.
 	final private byte[] locksMarker = new byte[LockTable.LOCKS_SIZE /8 + 1];
 	final private LockProcedure lockProcedure = new LockProcedure(locksMarker);
-	
+
 	//Marked on beforeRead, used for the double lock check
 	private int localClock;
 	private int lastReadLock;
@@ -48,7 +47,7 @@ final public class Context implements org.deuce.transaction.Context{
 	//Global lock used to allow only one irrevocable transaction solely. 
 	final private static ReentrantReadWriteLock irrevocableAccessLock = new ReentrantReadWriteLock();
 	private boolean irrevocableState = false;
-	
+
 	final private TObjectProcedure<WriteFieldAccess> putProcedure = new TObjectProcedure<WriteFieldAccess>(){
 		@Override
 		public boolean execute(WriteFieldAccess writeField) {
@@ -56,11 +55,11 @@ final public class Context implements org.deuce.transaction.Context{
 			return true;
 		}
 	};
-	
+
 	public Context(){
 		this.localClock = clock.get();
 	}
-	
+
 	@Override
 	public void init(int atomicBlockId, String metainf){
 		this.currentReadFieldAccess = null;
@@ -75,7 +74,7 @@ final public class Context implements org.deuce.transaction.Context{
 		this.longPool.clear();
 		this.floatPool.clear();
 		this.doublePool.clear();
-		
+
 		//Lock according to the transaction irrevocable state
 		if(irrevocableState)
 			irrevocableAccessLock.writeLock().lock();
@@ -84,7 +83,7 @@ final public class Context implements org.deuce.transaction.Context{
 		
 		this.localClock = clock.get();	
 	}
-	
+
 	@Override
 	public boolean commit(){
 		try
@@ -116,16 +115,15 @@ final public class Context implements org.deuce.transaction.Context{
 			else{
 				irrevocableAccessLock.readLock().unlock();
 			}
-			
 		}
 	}
-	
+
 	@Override
 	public void rollback(){
 		irrevocableAccessLock.readLock().unlock();
 	}
 
-	private WriteFieldAccess onReadAccess0( Object obj, long field){
+	private WriteFieldAccess onReadAccess0( Object obj, long field, int advice){
 
 		ReadFieldAccess current = currentReadFieldAccess;
 		int hash = current.hashCode();
@@ -142,171 +140,171 @@ final public class Context implements org.deuce.transaction.Context{
 		// Add to write set
 		writeSet.put( write);
 	}
-	
+
 	@Override
-	public void beforeReadAccess(Object obj, long field) {
-		
+	public void beforeReadAccess(Object obj, long field, int advice) {
+
 		ReadFieldAccess next = readSet.getNext();
 		currentReadFieldAccess = next;
-		next.init(obj, field);
+		next.init(obj, field, advice);
 
 		// Check the read is still valid
 		lastReadLock = LockTable.checkLock(next.hashCode(), localClock);
 	}
-	
+
 	@Override
-	public Object onReadAccess( Object obj, Object value, long field){
-		WriteFieldAccess writeAccess = onReadAccess0(obj, field);
+	public Object onReadAccess( Object obj, Object value, long field, int advice){
+		WriteFieldAccess writeAccess = onReadAccess0(obj, field, advice);
 		if( writeAccess == null)
 			return value;
-		
+
 		return ((ObjectWriteFieldAccess)writeAccess).getValue();  
 	}
-	
+
 	@Override
-	public boolean onReadAccess(Object obj, boolean value, long field) {
-		WriteFieldAccess writeAccess = onReadAccess0(obj, field);
+	public boolean onReadAccess(Object obj, boolean value, long field, int advice) {
+		WriteFieldAccess writeAccess = onReadAccess0(obj, field, advice);
 		if( writeAccess == null)
 			return value;
-		
+
 		return ((BooleanWriteFieldAccess)writeAccess).getValue();  
 	}
-	
+
 	@Override
-	public byte onReadAccess(Object obj, byte value, long field) {
-		WriteFieldAccess writeAccess = onReadAccess0(obj, field);
+	public byte onReadAccess(Object obj, byte value, long field, int advice) {
+		WriteFieldAccess writeAccess = onReadAccess0(obj, field, advice);
 		if( writeAccess == null)
 			return value;
-		
+
 		return ((ByteWriteFieldAccess)writeAccess).getValue();  
 	}
-	
+
 	@Override
-	public char onReadAccess(Object obj, char value, long field) {
-		WriteFieldAccess writeAccess = onReadAccess0(obj, field);
+	public char onReadAccess(Object obj, char value, long field, int advice) {
+		WriteFieldAccess writeAccess = onReadAccess0(obj, field, advice);
 		if( writeAccess == null)
 			return value;
-		
+
 		return ((CharWriteFieldAccess)writeAccess).getValue();  
 	}
-	
+
 	@Override
-	public short onReadAccess(Object obj, short value, long field) {
-		WriteFieldAccess writeAccess = onReadAccess0(obj, field);
+	public short onReadAccess(Object obj, short value, long field, int advice) {
+		WriteFieldAccess writeAccess = onReadAccess0(obj, field, advice);
 		if( writeAccess == null)
 			return value;
-		
+
 		return ((ShortWriteFieldAccess)writeAccess).getValue();  
 
 	}
-	
+
 	@Override
-	public int onReadAccess(Object obj, int value, long field) {
-		WriteFieldAccess writeAccess = onReadAccess0(obj, field);
+	public int onReadAccess(Object obj, int value, long field, int advice) {
+		WriteFieldAccess writeAccess = onReadAccess0(obj, field, advice);
 		if( writeAccess == null)
 			return value;
-		
+
 		return ((IntWriteFieldAccess)writeAccess).getValue();
 	}
-	
+
 	@Override
-	public long onReadAccess(Object obj, long value, long field) {
-		WriteFieldAccess writeAccess = onReadAccess0(obj, field);
+	public long onReadAccess(Object obj, long value, long field, int advice) {
+		WriteFieldAccess writeAccess = onReadAccess0(obj, field, advice);
 		if( writeAccess == null)
 			return value;
-		
+
 		return ((LongWriteFieldAccess)writeAccess).getValue();  
 	}
-	
+
 	@Override
-	public float onReadAccess(Object obj, float value, long field) {
-		WriteFieldAccess writeAccess = onReadAccess0(obj, field);
+	public float onReadAccess(Object obj, float value, long field, int advice) {
+		WriteFieldAccess writeAccess = onReadAccess0(obj, field, advice);
 		if( writeAccess == null)
 			return value;
-		
+
 		return ((FloatWriteFieldAccess)writeAccess).getValue();  
 	}
-	
+
 	@Override
-	public double onReadAccess(Object obj, double value, long field) {
-		WriteFieldAccess writeAccess = onReadAccess0(obj, field);
+	public double onReadAccess(Object obj, double value, long field, int advice) {
+		WriteFieldAccess writeAccess = onReadAccess0(obj, field, advice);
 		if( writeAccess == null)
 			return value;
-		
+
 		return ((DoubleWriteFieldAccess)writeAccess).getValue();  
 	}
-	
+
 	@Override
-	public void onWriteAccess( Object obj, Object value, long field){
+	public void onWriteAccess( Object obj, Object value, long field, int advice){
 		ObjectWriteFieldAccess next = objectPool.getNext();
-		next.set(value, obj, field);
+		next.set(value, obj, field, advice);
 		addWriteAccess0(next);
 	}
-	
+
 	@Override
-	public void onWriteAccess(Object obj, boolean value, long field) {
-		
+	public void onWriteAccess(Object obj, boolean value, long field, int advice) {
+
 		BooleanWriteFieldAccess next = booleanPool.getNext();
-		next.set(value, obj, field);
+		next.set(value, obj, field, advice);
 		addWriteAccess0(next);
 	}
-	
+
 	@Override
-	public void onWriteAccess(Object obj, byte value, long field) {
-		
+	public void onWriteAccess(Object obj, byte value, long field, int advice) {
+
 		ByteWriteFieldAccess next = bytePool.getNext();
-		next.set(value, obj, field);
+		next.set(value, obj, field, advice);
 		addWriteAccess0(next);
 	}
-	
+
 	@Override
-	public void onWriteAccess(Object obj, char value, long field) {
-		
+	public void onWriteAccess(Object obj, char value, long field, int advice) {
+
 		CharWriteFieldAccess next = charPool.getNext();
-		next.set(value, obj, field);
+		next.set(value, obj, field, advice);
 		addWriteAccess0(next);
 	}
-	
+
 	@Override
-	public void onWriteAccess(Object obj, short value, long field) {
-		
+	public void onWriteAccess(Object obj, short value, long field, int advice) {
+
 		ShortWriteFieldAccess next = shortPool.getNext();
-		next.set(value, obj, field);
+		next.set(value, obj, field, advice);
 		addWriteAccess0(next);
 	}
-	
+
 	@Override
-	public void onWriteAccess(Object obj, int value, long field) {
-		
+	public void onWriteAccess(Object obj, int value, long field, int advice) {
+
 		IntWriteFieldAccess next = intPool.getNext();
-		next.set(value, obj, field);
+		next.set(value, obj, field, advice);
 		addWriteAccess0(next);
 	}
-	
+
 	@Override
-	public void onWriteAccess(Object obj, long value, long field) {
-		
+	public void onWriteAccess(Object obj, long value, long field, int advice) {
+
 		LongWriteFieldAccess next = longPool.getNext();
-		next.set(value, obj, field);
+		next.set(value, obj, field, advice);
 		addWriteAccess0(next);
 	}
 
 	@Override
-	public void onWriteAccess(Object obj, float value, long field) {
-		
+	public void onWriteAccess(Object obj, float value, long field, int advice) {
+
 		FloatWriteFieldAccess next = floatPool.getNext();
-		next.set(value, obj, field);
+		next.set(value, obj, field, advice);
 		addWriteAccess0(next);
 	}
 
 	@Override
-	public void onWriteAccess(Object obj, double value, long field) {
-		
+	public void onWriteAccess(Object obj, double value, long field, int advice) {
+
 		DoubleWriteFieldAccess next = doublePool.getNext();
-		next.set(value, obj, field);
+		next.set(value, obj, field, advice);
 		addWriteAccess0(next);
 	}
-	
+
 	private static class ObjectResourceFactory implements ResourceFactory<ObjectWriteFieldAccess>{
 		@Override
 		public ObjectWriteFieldAccess newInstance() {
@@ -362,7 +360,7 @@ final public class Context implements org.deuce.transaction.Context{
 		}
 	}
 	final private Pool<LongWriteFieldAccess> longPool = new Pool<LongWriteFieldAccess>( new LongResourceFactory());
-	
+
 	private static class FloatResourceFactory implements ResourceFactory<FloatWriteFieldAccess>{
 		@Override
 		public FloatWriteFieldAccess newInstance() {
@@ -370,7 +368,7 @@ final public class Context implements org.deuce.transaction.Context{
 		}
 	}
 	final private Pool<FloatWriteFieldAccess> floatPool = new Pool<FloatWriteFieldAccess>( new FloatResourceFactory());
-	
+
 	private static class DoubleResourceFactory implements ResourceFactory<DoubleWriteFieldAccess>{
 		@Override
 		public DoubleWriteFieldAccess newInstance() {
@@ -378,7 +376,7 @@ final public class Context implements org.deuce.transaction.Context{
 		}
 	}
 	final private Pool<DoubleWriteFieldAccess> doublePool = new Pool<DoubleWriteFieldAccess>( new DoubleResourceFactory());
-	
+
 	@Override
 	public void onIrrevocableAccess() {
 		if(irrevocableState) // already in irrevocable state so no need to restart transaction.
@@ -387,5 +385,5 @@ final public class Context implements org.deuce.transaction.Context{
 		irrevocableState = true;
 		throw TransactionException.STATIC_TRANSACTION;
 	}
-	
+
 }

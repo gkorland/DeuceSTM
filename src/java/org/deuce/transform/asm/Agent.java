@@ -18,7 +18,9 @@ import java.util.jar.JarOutputStream;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+
 import org.deuce.reflection.UnsafeHolder;
+import org.deuce.transaction.ContextDelegator;
 import org.deuce.transform.Exclude;
 
 /**
@@ -29,7 +31,7 @@ import org.deuce.transform.Exclude;
  */
 @Exclude
 public class Agent implements ClassFileTransformer {
-	final private static Logger logger = Logger.getLogger("org.deuce.agent");
+	private static final Logger logger = Logger.getLogger("org.deuce.agent");
 	final private static boolean VERBOSE = Boolean.getBoolean("org.deuce.verbose");
 	final private static boolean GLOBAL_TXN = Boolean.getBoolean("org.deuce.transaction.global");
 
@@ -127,7 +129,7 @@ public class Agent implements ClassFileTransformer {
 	/**
 	 * Used for offline instrumentation.
 	 * @param args input jar & output jar
-	 * e.g.: "C:\Java\jdk1.6.0_19\jre\lib\rt.jar" "C:\rt.jar"
+	 * e.g.: "C:\Java\jdk1.5.0_13\jre\lib\rt.jar" "C:\rt.jar"
 	 * @throws Exception
 	 */
 	public static void main(String[] args) throws Exception{
@@ -149,10 +151,11 @@ public class Agent implements ClassFileTransformer {
 		for(int i=0 ; i<inFileNamesArr.length ; ++i){
 			String inFileName = inFileNamesArr[i];
 			String outFilename = outFilenamesArr[i];
-			
+
 			final int size = 4096;
 			byte[] buffer = new byte[size];
 			ByteArrayOutputStream baos = new ByteArrayOutputStream(size);
+
 			JarInputStream jarIS = new JarInputStream(new FileInputStream(inFileName));
 			JarOutputStream jarOS = new JarOutputStream(new FileOutputStream(outFilename), jarIS.getManifest());
 
@@ -195,6 +198,7 @@ public class Agent implements ClassFileTransformer {
 			}
 			finally {
 				logger.info("Closing source:" + inFileName + " target:" + outFilename);
+				logger.info("Advice given: " + ContextDelegator.transactionManager.createAdvisor().adviceGiven());
 				jarIS.close();
 				jarOS.close();
 			}

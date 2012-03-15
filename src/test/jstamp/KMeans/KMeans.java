@@ -3,6 +3,7 @@ package jstamp.KMeans;
 import java.io.DataInputStream;
 import java.io.FileInputStream;
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /* =============================================================================
  *
@@ -142,6 +143,8 @@ public class KMeans extends Thread {
    **/
   float[][] cluster_centres;
   
+  static AtomicBoolean done;
+
   public KMeans() {
     max_nclusters = 13;
     min_nclusters = 4;
@@ -157,7 +160,7 @@ public class KMeans extends Thread {
   }
 
   public void run() {
-    while(true) {
+    while(!done.get()) {
       Barrier.enterBarrier();
       Normal.work(threadid, g_args);
       Barrier.enterBarrier();
@@ -172,6 +175,7 @@ public class KMeans extends Thread {
     int nthreads;
     int MAX_LINE_LENGTH = 1000000; /* max input is 400000 one digit input + spaces */
 
+    done = new AtomicBoolean(false);
     /**
      * Read options fron the command prompt 
      **/
@@ -297,6 +301,7 @@ public class KMeans extends Thread {
     System.out.println("Finished......");
         
 //    System.exit(0);
+    done.set(true);
     for(int i = 1; i<nthreads; i++) {
         try {
 	        km[i].interrupt();

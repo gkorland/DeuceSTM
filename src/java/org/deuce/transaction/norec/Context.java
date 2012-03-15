@@ -100,7 +100,7 @@ final public class Context implements org.deuce.transaction.Context {
 	}
 
 	@Override
-	public void beforeReadAccess(Object obj, long field) {
+	public void beforeReadAccess(Object obj, long field, int advice) {
 	}
 
 	private int validate() {
@@ -135,7 +135,7 @@ final public class Context implements org.deuce.transaction.Context {
 	}
 
 	@Override
-	public Object onReadAccess(Object obj, Object value, long field) {
+	public Object onReadAccess(Object obj, Object value, long field, int advice) {
 		ObjectFieldAccess f = (ObjectFieldAccess) onReadAccess(obj, field, Type.OBJECT);
 		if (f != null) {
 			readSet.add(f);
@@ -147,7 +147,7 @@ final public class Context implements org.deuce.transaction.Context {
 	}
 
 	@Override
-	public boolean onReadAccess(Object obj, boolean value, long field) {
+	public boolean onReadAccess(Object obj, boolean value, long field, int advice) {
 		BooleanFieldAccess f = (BooleanFieldAccess) onReadAccess(obj, field, Type.BOOLEAN);
 		if (f != null) {
 			readSet.add(f);
@@ -159,7 +159,7 @@ final public class Context implements org.deuce.transaction.Context {
 	}
 
 	@Override
-	public byte onReadAccess(Object obj, byte value, long field) {
+	public byte onReadAccess(Object obj, byte value, long field, int advice) {
 		ByteFieldAccess f = (ByteFieldAccess) onReadAccess(obj, field, Type.BYTE);
 		if (f != null) {
 			readSet.add(f);
@@ -171,7 +171,7 @@ final public class Context implements org.deuce.transaction.Context {
 	}
 
 	@Override
-	public char onReadAccess(Object obj, char value, long field) {
+	public char onReadAccess(Object obj, char value, long field, int advice) {
 		CharFieldAccess f = (CharFieldAccess) onReadAccess(obj, field, Type.CHAR);
 		if (f != null) {
 			readSet.add(f);
@@ -183,7 +183,7 @@ final public class Context implements org.deuce.transaction.Context {
 	}
 
 	@Override
-	public short onReadAccess(Object obj, short value, long field) {
+	public short onReadAccess(Object obj, short value, long field, int advice) {
 		ShortFieldAccess f = (ShortFieldAccess) onReadAccess(obj, field, Type.SHORT);
 		if (f != null) {
 			readSet.add(f);
@@ -195,7 +195,7 @@ final public class Context implements org.deuce.transaction.Context {
 	}
 
 	@Override
-	public int onReadAccess(Object obj, int value, long field) {
+	public int onReadAccess(Object obj, int value, long field, int advice) {
 		IntFieldAccess f = (IntFieldAccess) onReadAccess(obj, field, Type.INT);
 		if (f != null) {
 			readSet.add(f);
@@ -207,7 +207,7 @@ final public class Context implements org.deuce.transaction.Context {
 	}
 
 	@Override
-	public long onReadAccess(Object obj, long value, long field) {
+	public long onReadAccess(Object obj, long value, long field, int advice) {
 		LongFieldAccess f = (LongFieldAccess) onReadAccess(obj, field, Type.LONG);
 		if (f != null) {
 			readSet.add(f);
@@ -219,7 +219,7 @@ final public class Context implements org.deuce.transaction.Context {
 	}
 
 	@Override
-	public float onReadAccess(Object obj, float value, long field) {
+	public float onReadAccess(Object obj, float value, long field, int advice) {
 		FloatFieldAccess f = (FloatFieldAccess) onReadAccess(obj, field, Type.FLOAT);
 		if (f != null) {
 			readSet.add(f);
@@ -231,7 +231,7 @@ final public class Context implements org.deuce.transaction.Context {
 	}
 
 	@Override
-	public double onReadAccess(Object obj, double value, long field) {
+	public double onReadAccess(Object obj, double value, long field, int advice) {
 		DoubleFieldAccess f = (DoubleFieldAccess) onReadAccess(obj, field, Type.DOUBLE);
 		if (f != null) {
 			readSet.add(f);
@@ -243,47 +243,47 @@ final public class Context implements org.deuce.transaction.Context {
 	}
 
 	@Override
-	public void onWriteAccess(Object obj, Object value, long field) {
+	public void onWriteAccess(Object obj, Object value, long field, int advice) {
 		writeSet.add(obj, field, value);
 	}
 
 	@Override
-	public void onWriteAccess(Object obj, boolean value, long field) {
+	public void onWriteAccess(Object obj, boolean value, long field, int advice) {
 		writeSet.add(obj, field, value);
 	}
 
 	@Override
-	public void onWriteAccess(Object obj, byte value, long field) {
+	public void onWriteAccess(Object obj, byte value, long field, int advice) {
 		writeSet.add(obj, field, value);
 	}
 
 	@Override
-	public void onWriteAccess(Object obj, char value, long field) {
+	public void onWriteAccess(Object obj, char value, long field, int advice) {
 		writeSet.add(obj, field, value);
 	}
 
 	@Override
-	public void onWriteAccess(Object obj, short value, long field) {
+	public void onWriteAccess(Object obj, short value, long field, int advice) {
 		writeSet.add(obj, field, value);
 	}
 
 	@Override
-	public void onWriteAccess(Object obj, int value, long field) {
+	public void onWriteAccess(Object obj, int value, long field, int advice) {
 		writeSet.add(obj, field, value);
 	}
 
 	@Override
-	public void onWriteAccess(Object obj, long value, long field) {
+	public void onWriteAccess(Object obj, long value, long field, int advice) {
 		writeSet.add(obj, field, value);
 	}
 
 	@Override
-	public void onWriteAccess(Object obj, float value, long field) {
+	public void onWriteAccess(Object obj, float value, long field, int advice) {
 		writeSet.add(obj, field, value);
 	}
 	
 	@Override
-	public void onWriteAccess(Object obj, double value, long field) {
+	public void onWriteAccess(Object obj, double value, long field, int advice) {
 		writeSet.add(obj, field, value);
 	}
 	

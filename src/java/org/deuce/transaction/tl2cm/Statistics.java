@@ -1,38 +1,27 @@
 package org.deuce.transaction.tl2cm;
 
-import java.util.Formatter;
 import java.util.HashMap;
-import java.util.Locale;
 import java.util.Map;
 
 import org.deuce.transform.Exclude;
 
 /**
- * This class provides statistics collecting functionality for TL2CM
- * 
- * @author Yoav Cohen, yoav.cohen@cs.tau.ac.il
- */
+* @author Yoav Cohen, yoav.cohen@cs.tau.ac.il
+* @since 1.2
+*/
 @Exclude
 public class Statistics {
 
-	public enum AbortType {ALL, SPECULATION, COMMIT, COMMIT_READSET_VALIDATION, COMMIT_WRITESET_LOCKING, COMMIT_KILLED, SPECULATION_READVERSION, SPECULATION_LOCATION_LOCKED} 
+	public enum AbortType {ALL, SPECULATION, COMMIT, COMMIT_READSET_VALIDATION, COMMIT_WRITESET_LOCKING, SPECULATION_READVERSION, SPECULATION_LOCATION_LOCKED} 
 	
 	private static final Map<Integer, Statistics> statsMap = new HashMap<Integer, Statistics>();
-	private static int[] txAttemptsHistBins;
 	
-	static {
-		String histStr = System.getProperty("txDurationHist");
-		if (histStr == null) {
-			histStr = "1,2,5,20";
+	public Statistics(int threadId) {
+		// We don't want the main application thread to be included
+		// in the statistics
+		if (threadId != 1) {
+			statsMap.put(threadId, this);
 		}
-		String[] histStrArr = histStr.split(",");
-		txAttemptsHistBins = new int[histStrArr.length+1];
-		for (int i=0; i<txAttemptsHistBins.length-1; i++) {
-			String limitStr = histStrArr[i];
-			int limit = Integer.valueOf(limitStr);
-			txAttemptsHistBins[i] = limit;
-		}
-		txAttemptsHistBins[txAttemptsHistBins.length-1] = 100;
 	}
 	
 	public static int getTotalStarts() {
@@ -62,7 +51,7 @@ public class Statistics {
 		return totalAborts;
 	}
 
-	public static String getTotalAbortsPercentage(AbortType type) {
+	public static double getTotalAbortsPercentage(AbortType type) {
 		int abortsSum = 0, totalStarts = 0;
 		for (Map.Entry<Integer, Statistics> entry : statsMap.entrySet()) {
 			Statistics statistics = entry.getValue();
@@ -78,9 +67,6 @@ public class Statistics {
 			else if (type.equals(AbortType.COMMIT_WRITESET_LOCKING)) {
 				abortsSum += statistics.getAborts(AbortType.COMMIT_WRITESET_LOCKING);
 			}
-			else if (type.equals(AbortType.COMMIT_KILLED)) {
-				abortsSum += statistics.getAborts(AbortType.COMMIT_KILLED);
-			}
 			else if (type.equals(AbortType.SPECULATION_READVERSION)) {
 				abortsSum += statistics.getAborts(AbortType.SPECULATION_READVERSION);
 			}
@@ -92,54 +78,53 @@ public class Statistics {
 			}
 			totalStarts += statistics.starts;
 		}
-		double result = percentage(abortsSum, totalStarts);
-		return formatDouble(result);
+		return percentage(abortsSum, totalStarts);
 	}
-
-	public static String getTotalAvgReadSetSize() {
+	
+	public static double getTotalAvgReadSetSize() {
 		double sumOfAverages = 0;
 		for (Map.Entry<Integer, Statistics> entry : statsMap.entrySet()) {
 			Statistics statistics = entry.getValue();
 			sumOfAverages += statistics.getAvgReadSetSizeOnCommit();
 		}
-		return formatDouble(average(sumOfAverages, statsMap.size()));
+		return average(sumOfAverages, statsMap.size());
 	}
 
-	public static String getTotalAvgWriteSetSize() {
+	public static double getTotalAvgWriteSetSize() {
 		double sumOfAverages = 0;
 		for (Map.Entry<Integer, Statistics> entry : statsMap.entrySet()) {
 			Statistics statistics = entry.getValue();
 			sumOfAverages += statistics.getAvgWriteSetSizeOnCommit();
 		}
-		return formatDouble(average(sumOfAverages, statsMap.size()));
+		return average(sumOfAverages, statsMap.size());
 	}
 
-	public static String getTotalAvgIndexInReadSetValidationFailure() {
+	public static double getTotalAvgIndexInReadSetValidationFailure() {
 		int sumOfAverages = 0;
 		for (Map.Entry<Integer, Statistics> entry : statsMap.entrySet()) {
 			Statistics statistics = entry.getValue();
 			sumOfAverages += statistics.getAvgReadSetValidationFailureIndex();
 		}
-		return formatDouble(average(sumOfAverages, statsMap.size()));
+		return average(sumOfAverages, statsMap.size());
 	}
 
-	public static String getTotalAvgIndexInWriteSetValidationFailure() {
+	public static double getTotalAvgIndexInWriteSetValidationFailure() {
 		double sumOfAverages = 0;
 		for (Map.Entry<Integer, Statistics> entry : statsMap.entrySet()) {
 			Statistics statistics = entry.getValue();
 			sumOfAverages += statistics.getAvgWriteSetValidationFailureIndex();
 		}
-		return formatDouble(average(sumOfAverages, statsMap.size()));
+		return average(sumOfAverages, statsMap.size());
 	}
 
-	public static String getTotalAvgCommitingTxTime() {
+	public static double getTotalAvgCommitingTxTime() {
 		int sum = 0;
 		for (Map.Entry<Integer, Statistics> entry : statsMap.entrySet()) {
 			Statistics statistics = entry.getValue();
 			sum += statistics.txDurationSum;
 		}
-		double avgTimeInMS = 1000 * average(sum, getTotalCommits());
-		return formatDouble(avgTimeInMS);
+		double avgTimeInMS = average(sum, getTotalCommits());
+		return 1000 * avgTimeInMS;	// return value in micro-seconds
 	}
 
 	public static String getDetailedStatistics() {
@@ -156,38 +141,12 @@ public class Statistics {
 		addStat(" - During commit        (%) ", getTotalAbortsPercentage(AbortType.COMMIT), sb);
 		addStat("   - Writeset Locking   (%) ", getTotalAbortsPercentage(AbortType.COMMIT_WRITESET_LOCKING), sb);
 		addStat("   - Readset Validation (%) ", getTotalAbortsPercentage(AbortType.COMMIT_READSET_VALIDATION), sb);
-		addStat("   - Killed             (%) ", getTotalAbortsPercentage(AbortType.COMMIT_KILLED), sb);
 		addStat("Avg. read set size          ", getTotalAvgReadSetSize(), sb);
 		addStat("Avg. fail index in rs valid.", getTotalAvgIndexInReadSetValidationFailure(), sb);
 		addStat("Avg. write set size         ", getTotalAvgWriteSetSize(), sb);
 		addStat("Avg. fail index in ws lock. ", getTotalAvgIndexInWriteSetValidationFailure(), sb);
 		addStat("Avg. commiting TX time (us) ", getTotalAvgCommitingTxTime(), sb);
-		getTxAttemptsHistogram(sb);
 		return sb.toString();
-	}
-
-	private static void getTxAttemptsHistogram(StringBuilder sb) {
-		int[] totalTxDurationHistCounters = new int[txAttemptsHistBins.length];
-		for (Map.Entry<Integer, Statistics> entry : statsMap.entrySet()) {
-			Statistics statistics = entry.getValue();
-			for (int i=0; i<totalTxDurationHistCounters.length; i++) {
-				totalTxDurationHistCounters[i] += statistics.txAttemptsHistCounters[i];
-			}
-		}
-		int totalCommits = getTotalCommits();
-		double[] totalTxDurationHist = new double[txAttemptsHistBins.length];
-		for (int i=0; i<totalTxDurationHist.length; i++) {
-			totalTxDurationHist[i] = percentage(totalTxDurationHistCounters[i], totalCommits);
-		}
-		
-		sb.append("\n  Transaction Attempts Histogram:\n");
-		for (int i=0; i<totalTxDurationHist.length; i++) {
-			sb.append("  # attempts <= ");
-			sb.append(txAttemptsHistBins[i]);
-			sb.append(": ");
-			sb.append(formatDouble(totalTxDurationHist[i]));
-			sb.append("%\n");
-		}
 	}
 
 	private static void addStat(String title, Object value, StringBuilder sb) {
@@ -199,17 +158,14 @@ public class Statistics {
 	}
 	
 	private int starts = 0;
-	private int abortsDuringCommitWritesetLocking = 0;
-	private int abortsDuringCommitReadSetValidation = 0;
-	private int abortsDuringCommitKilled = 0;
+	private int abortsDuringCommitWritesetLocking;
+	private int abortsDuringCommitReadSetValidation;
 	private int abortsDuringSpeculationNewerReadVersion = 0;
 	private int abortsDuringSpeculationLocationLocked = 0;
 	private int commits = 0;
 	
 	private long startTime;
 	private long txDurationSum = 0;
-	
-	private int[] txAttemptsHistCounters;
 	
 	private int readSetValidationFailureSum = 0;
 	private int readSetValidationFailureCounter = 0;
@@ -222,11 +178,6 @@ public class Statistics {
 	private int writeSetSizeOnCommitSum = 0;
 	private int writeSetSizeOnCommitCounter = 0;
 	
-	public Statistics(int threadId) {
-		statsMap.put(threadId, this);
-		txAttemptsHistCounters = new int[txAttemptsHistBins.length];
-	}
-
 	public void reportTxStart() {
 		this.starts++;
 		this.startTime = System.currentTimeMillis();
@@ -248,18 +199,11 @@ public class Statistics {
 		}
 	}
 	
-	public void reportCommit(int attempts) {
+	public void reportCommit() {
 		this.commits++;
 		if (startTime != -1) {
 			long txDuration = System.currentTimeMillis() - startTime;
 			txDurationSum += txDuration;
-			for (int i=0; i<txAttemptsHistBins.length; i++) {
-				int limit = txAttemptsHistBins[i];
-				if (attempts <= limit) {
-					txAttemptsHistCounters[i]++;
-					break;
-				}
-			}
 		}
 	}
 	
@@ -275,9 +219,6 @@ public class Statistics {
 		}
 		else if (type.equals(AbortType.COMMIT_WRITESET_LOCKING)) {
 			return abortsDuringCommitWritesetLocking;
-		}
-		else if (type.equals(AbortType.COMMIT_KILLED)) {
-			return abortsDuringCommitKilled;
 		}
 		else if (type.equals(AbortType.SPECULATION_READVERSION)) {
 			return abortsDuringSpeculationNewerReadVersion;
@@ -352,11 +293,6 @@ public class Statistics {
 
 	private static double average(double sum, double n) {
 		return sum / n;
-	}
-
-	private static String formatDouble(double result) {
-		Formatter formatter = new Formatter(Locale.US);
-		return formatter.format("%.2f", result).out().toString();
 	}
 	
 }

@@ -44,27 +44,28 @@ public interface Context
 	void rollback();
 
 	/* Methods called on Read/Write event */
-	void beforeReadAccess( Object obj, long field);
-	Object onReadAccess( Object obj, Object value, long field);
-	boolean onReadAccess( Object obj, boolean value, long field);
-	byte onReadAccess( Object obj, byte value, long field);
-	char onReadAccess( Object obj, char value, long field);
-	short onReadAccess( Object obj, short value, long field);
-	int onReadAccess( Object obj, int value, long field);
-	long onReadAccess( Object obj, long value, long field);
-	float onReadAccess( Object obj, float value, long field);
-	double onReadAccess( Object obj, double value, long field);
+	void beforeReadAccess( Object obj, long field, int advice);
+	Object onReadAccess( Object obj, Object value, long field, int advice);
+	boolean onReadAccess( Object obj, boolean value, long field, int advice);
+	byte onReadAccess( Object obj, byte value, long field, int advice);
+	char onReadAccess( Object obj, char value, long field, int advice);
+	short onReadAccess( Object obj, short value, long field, int advice);
+	int onReadAccess( Object obj, int value, long field, int advice);
+	long onReadAccess( Object obj, long value, long field, int advice);
+	float onReadAccess( Object obj, float value, long field, int advice);
+	double onReadAccess( Object obj, double value, long field, int advice);
 
-	void onWriteAccess( Object obj, Object value, long field);
-	void onWriteAccess( Object obj, boolean value, long field);
-	void onWriteAccess( Object obj, byte value, long field);
-	void onWriteAccess( Object obj, char value, long field);
-	void onWriteAccess( Object obj, short value, long field);
-	void onWriteAccess( Object obj, int value, long field);
-	void onWriteAccess( Object obj, long value, long field);
-	void onWriteAccess( Object obj, float value, long field);
-	void onWriteAccess( Object obj, double value, long field);
+	void onWriteAccess( Object obj, Object value, long field, int advice);
+	void onWriteAccess( Object obj, boolean value, long field, int advice);
+	void onWriteAccess( Object obj, byte value, long field, int advice);
+	void onWriteAccess( Object obj, char value, long field, int advice);
+	void onWriteAccess( Object obj, short value, long field, int advice);
+	void onWriteAccess( Object obj, int value, long field, int advice);
+	void onWriteAccess( Object obj, long value, long field, int advice);
+	void onWriteAccess( Object obj, float value, long field, int advice);
+	void onWriteAccess( Object obj, double value, long field, int advice);
 	
 	/** Called before entering an irrevocable block*/
 	void onIrrevocableAccess();
+	
 }

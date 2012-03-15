@@ -16,7 +16,8 @@ public class TransactionException extends RuntimeException {
 	final static public String TRANSACTION_EXCEPTION_INTERNAL = Type.getInternalName(TransactionException.class);
 	final static public TransactionException STATIC_TRANSACTION = new TransactionException();
 	
-	public TransactionException(){}
+	public TransactionException(){
+	}
 
 	public TransactionException( String msg){
 		super(msg);

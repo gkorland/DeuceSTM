@@ -8,8 +8,8 @@ public class DoubleWriteFieldAccess extends WriteFieldAccess {
 
 	private double value;
 
-	public void set(double value, Object reference, long field) {
-		super.init(reference, field);
+	public void set(double value, Object reference, long field, int advice) {
+		super.init(reference, field, advice);
 		this.value = value;
 	}
 

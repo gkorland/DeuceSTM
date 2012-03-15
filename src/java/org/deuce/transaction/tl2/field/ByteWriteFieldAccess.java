@@ -8,8 +8,8 @@ public class ByteWriteFieldAccess extends WriteFieldAccess {
 
 	private byte value;
 
-	public void set(byte value, Object reference, long field) {
-		super.init(reference, field);
+	public void set(byte value, Object reference, long field, int advice) {
+		super.init(reference, field, advice);
 		this.value = value;
 	}
 

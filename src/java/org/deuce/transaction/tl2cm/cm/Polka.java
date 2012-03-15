@@ -1,8 +1,7 @@
 package org.deuce.transaction.tl2cm.cm;
 
+import org.deuce.transaction.tl2.field.WriteFieldAccess;
 import org.deuce.transaction.tl2cm.Context;
-import org.deuce.transaction.tl2cm.field.ReadFieldAccess;
-import org.deuce.transaction.tl2cm.field.WriteFieldAccess;
 import org.deuce.transform.Exclude;
 
 /**
@@ -13,61 +12,36 @@ import org.deuce.transform.Exclude;
  * @since 1.2
  */
 @Exclude
-public class Polka extends AbstractContentionManager {
+public class Polka extends BackoffCM {
 
 	private static int C = 4;
-	private int counter = 0;
 	
 	public Polka(int k) {
 		C = k;
 	}
 	
-	@Override
-	public void init() {
-		counter = 0;
-	}
-
-	@Override
-	public Action resolveReadConflict(ReadFieldAccess readField, Context me, Context other) {
-		int statusRecord = other.getStatusRecord();
-		int myPrio = me.getPriority();
+	public Action resolve(WriteFieldAccess contentionPoint, Context contending, Context other) {
+		BackoffData myState = getBackoffData();
+		int myPrio = contending.getPriority();
 		int otherPrio = other.getPriority();
-		int diff = (myPrio + counter) - otherPrio;
-		if (diff > 0 && counter > 0) {
-			if (Context.getTxStatus(statusRecord) == Context.TX_ABORTED || other.kill(Context.getTxLocalClock(statusRecord))) {
-				return Action.CONTINUE;
-			}
-			else {
-				me.kill(-1);
-				return Action.RESTART;
-			}
+		int myCurrTimestamp = contending.getLocalClock();
+		int diff = (myPrio + myState.counter) - otherPrio;
+		// Check if the thread is running a new transaction
+		// and if so we need to update the thread's state
+		if (myState.originalTimestamp < myCurrTimestamp) {
+			myState.originalTimestamp = myCurrTimestamp;
+			myState.counter = 1;
 		}
-		counter++;
-		diff = Math.abs(diff);
-		int t = (int) Math.pow(diff, counter) * C;
-		for (int i=0; i<t; i++);
-		return Action.RETRY;
-	}
-
-	public Action resolveWriteConflict(WriteFieldAccess writeField, Context me, Context other) {
-		int myPrio = me.getPriority();
-		int otherPrio = other.getPriority();
-		int diff = (myPrio + counter) - otherPrio;
-		if (diff > 0 && counter > 0) {
-			int statusRecord = other.getStatusRecord();
-			if (Context.getTxStatus(statusRecord) == Context.TX_ABORTED || other.kill(Context.getTxLocalClock(statusRecord))) {
-				return Action.RETRY;
-			}
-			else {
-				me.kill(-1);
-				return Action.RESTART;
-			}
+		else if (diff > 0 && myState.counter > 0) {
+			other.kill();
+			return Action.RETRY_LOCK;
 		}
-		counter++;
+		
+		myState.counter++;
 		diff = Math.abs(diff);
-		int t = (int) Math.pow(diff, counter) * C;
+		int t = (int) Math.pow(diff, myState.counter) * C;
 		for (int i=0; i<t; i++);
-		return Action.RETRY;
+		return Action.RETRY_LOCK;
 	}
 	
 	public boolean requiresPriorities() {
